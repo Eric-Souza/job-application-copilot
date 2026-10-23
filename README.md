@@ -1,0 +1,91 @@
+# Job Application Copilot
+
+A LangGraph agent that tailors your resume to a job posting. Paste a posting, and the agent extracts the requirements, matches them against your experience with RAG, and drafts tailored resume bullets. You review the drafts before anything is finalized. Every run is saved in Postgres, so you can close the tab and resume later.
+
+> **Status:** planning and project structure. Implementation in progress.
+
+## How it works
+
+```
+job posting
+  │
+  ▼
+parse_posting ──► retrieve_experience ──► match_requirements ──► draft_bullets ──► human_review ──► finalize
+(structured        (pgvector RAG over      (coverage + gaps       (tailored            (interrupt:       (tailored resume
+ requirements)      your resume/projects)   per requirement)       bullets + sources)   approve / edit /   section + summary)
+                                                                        ▲               request changes)
+                                                                        └──── revise ◄─────────┘
+```
+
+1. **parse_posting:** an LLM call with structured output (Pydantic) turns the posting into must-have and nice-to-have requirements, seniority, and stack.
+2. **retrieve_experience:** for each requirement, hybrid search over your resume, project write-ups, and articles stored in pgvector.
+3. **match_requirements:** scores coverage per requirement and lists gaps, with the evidence it found.
+4. **draft_bullets:** writes tailored bullets that cite which experience each one came from. It only uses retrieved evidence, so it doesn't invent experience.
+5. **human_review:** the graph pauses with a LangGraph `interrupt`. You approve, edit, or ask for changes, and changes loop back to drafting.
+6. **finalize:** produces the tailored resume section and a short summary you can paste into an application.
+
+## Features
+
+- [ ] LangGraph `StateGraph` with typed state and conditional edges
+- [ ] Structured outputs with Pydantic models for requirements, matches, and bullets
+- [ ] RAG over your experience: chunking, Gemini embeddings, pgvector, hybrid search
+- [ ] Human-in-the-loop review with `interrupt` and resume
+- [ ] Postgres checkpointer (`langgraph-checkpoint-postgres`), so runs survive restarts and can be resumed by thread ID
+- [ ] Token and step streaming to the React UI over SSE
+- [ ] Tool calling: the agent can fetch more context when a requirement has weak evidence
+- [ ] Langfuse tracing with per-run cost and latency
+- [ ] Optional: load experience through the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) instead of local files
+
+## Stack
+
+| Area | Choice |
+|------|--------|
+| Agent | LangGraph, LangChain |
+| API | Python, FastAPI, SSE |
+| LLM | Google Gemini (free tier), with Groq or local Ollama as alternatives |
+| Embeddings | Gemini embeddings |
+| Database | Postgres + pgvector (Docker locally, Neon free tier hosted) |
+| Agent state | LangGraph Postgres checkpointer |
+| Frontend | React, TypeScript, Vite, MUI |
+| Observability | Langfuse (Hobby free tier) |
+| Tests | pytest, Vitest |
+
+## Project structure
+
+```
+job-application-copilot/
+  apps/
+    api/                    # FastAPI + LangGraph
+      app/
+        graph/
+          state.py          # typed graph state
+          builder.py        # StateGraph wiring, checkpointer
+          nodes/            # parse_posting, retrieve_experience, match, draft, review, finalize
+        routers/            # runs, review decisions, SSE stream, experience ingestion
+        services/           # embeddings, retrieval, LLM providers
+        schemas.py          # Pydantic models (requirements, matches, bullets)
+      tests/
+    web/                    # React UI: posting input, live run view, review screen
+  data/resume/              # your resume and project write-ups (gitignored except samples)
+  docs/                     # design notes, screenshots
+  docker-compose.yml        # Postgres 16 + pgvector
+  .env.example
+```
+
+## Getting started
+
+Setup instructions will be added as the implementation lands. The plan:
+
+```bash
+cp .env.example .env        # add GEMINI_API_KEY
+docker compose up -d        # Postgres + pgvector
+# backend: apps/api   → pip install -e . && uvicorn app.main:app --reload
+# frontend: apps/web  → npm install && npm run dev
+```
+
+## Free to run
+
+- **Gemini API (AI Studio):** free tier for chat and embeddings.
+- **Postgres + pgvector:** local Docker, or Neon's free tier.
+- **Langfuse Hobby:** free tracing.
+- **Ollama:** fully local, if you'd rather not send your resume to an API.
