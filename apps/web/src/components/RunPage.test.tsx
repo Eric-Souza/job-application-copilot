@@ -10,6 +10,17 @@ const step = (label: string) => screen.getByText(label).closest('li')!
 describe('RunPage', () => {
   beforeEach(() => FakeEventSource.install())
 
+  it("shows the run's usage and a link to its trace", async () => {
+    const usage = { llm_calls: 4, input_tokens: 11_000, output_tokens: 1_400, seconds: 83.6 }
+    const trace_url = 'http://localhost:3100/project/p1/sessions/r1'
+    stubFetch({ 'GET /runs/r1': () => pausedView({ usage, trace_url }) })
+    render(<RunPage runId="r1" />)
+    act(() => FakeEventSource.latest().emit('status', pausedView({ usage, trace_url })))
+
+    expect(await screen.findByText(/4 model calls · 12.4K tokens · 1m 24s/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Trace' })).toHaveAttribute('href', trace_url)
+  })
+
   it('follows a run to the review, then approves it', async () => {
     let view = runView()
     const calls = stubFetch({

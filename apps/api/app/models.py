@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Computed, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Computed, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,6 +44,11 @@ class Run(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False, default="")  # set once the posting is parsed
     company: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
+    # Usage across all segments: model calls, tokens, and time spent running (not waiting for review)
+    llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    work_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 

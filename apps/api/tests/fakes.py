@@ -1,6 +1,10 @@
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
+from langchain_core.callbacks.manager import AsyncCallbackManager
+from langchain_core.messages import AIMessage, convert_to_messages
+from langchain_core.outputs import ChatGeneration, LLMResult
+from langchain_core.runnables.config import ensure_config
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.graph.checkpointer import serializer
@@ -11,8 +15,11 @@ class FakeLLM:
     """Stands in for a chat model: returns a canned response per structured-output schema.
 
     A response can be a model instance or a function of the prompt messages. Every call is
-    recorded as (schema name, messages), so tests can check what the graph sent.
+    recorded as (schema name, messages), so tests can check what the graph sent. Like a real chat
+    model, each call reports its token usage to the callbacks in the current config.
     """
+
+    USAGE: ClassVar[dict[str, int]] = {"input_tokens": 1000, "output_tokens": 200, "total_tokens": 1200}
 
     def __init__(self, responses: dict[type, Any | Callable[[list], Any]]):
         self.responses = responses
@@ -28,8 +35,13 @@ class _Structured:
 
     async def ainvoke(self, messages: list) -> Any:
         self.llm.calls.append((self.schema.__name__, messages))
+        callbacks = AsyncCallbackManager.configure(ensure_config().get("callbacks"))
+        (run,) = await callbacks.on_chat_model_start({"name": "fake"}, [convert_to_messages(messages)])
         response = self.llm.responses[self.schema]
-        return response(messages) if callable(response) else response
+        result = response(messages) if callable(response) else response
+        message = AIMessage(content="", usage_metadata=FakeLLM.USAGE)
+        await run.on_llm_end(LLMResult(generations=[[ChatGeneration(message=message)]]))
+        return result
 
 
 def evidence(chunk_id: str, content: str, context: str = "Engineer · Acme | 2022 – 2024") -> Evidence:

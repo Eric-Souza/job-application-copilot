@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models import Run
 from app.schemas import Draft, ReviewDecision, TailoredResume
+from app.services import tracing
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +46,16 @@ class Step(BaseModel):
     detail: str
 
 
+class Usage(BaseModel):
+    llm_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    seconds: float = 0.0  # time spent running, not waiting for review
+
+
 class RunView(RunSummary):
+    usage: Usage = Usage()
+    trace_url: str | None = None  # the run's session in Langfuse, when tracing is on
     steps: list[Step] = []  # the steps that have produced their output so far
     next_step: str | None = None  # running now, waiting (human_review), or the one that failed
     review: dict[str, Any] | None = None  # the paused draft, while awaiting review
@@ -129,6 +139,13 @@ class RunManager:
         if run is None:
             return None
         view = RunView.model_validate(run)
+        view.usage = Usage(
+            llm_calls=run.llm_calls,
+            input_tokens=run.input_tokens,
+            output_tokens=run.output_tokens,
+            seconds=round(run.work_seconds, 1),
+        )
+        view.trace_url = await tracing.session_url(run_id)
         snapshot = await self.graph.aget_state(self._config(run_id))
         values = snapshot.values
         view.steps = [
@@ -228,7 +245,23 @@ class RunManager:
                 queue.put_nowait(event)
 
     async def _execute(self, run_id: str, payload) -> None:
-        config, started = self._config(run_id), time.perf_counter()
+        segment = "start" if isinstance(payload, dict) else "retry" if payload is None else "review"
+        with tracing.traced(run_id, segment) as trace:
+            await self._stream(run_id, payload, trace)
+
+    async def _stream(self, run_id: str, payload, trace: tracing.Trace) -> None:
+        config = {**self._config(run_id), "callbacks": trace.callbacks}
+        started = time.perf_counter()
+
+        def spent() -> dict[str, Any]:
+            """This segment's usage, added to the run's totals with the final status update."""
+            return {
+                "llm_calls": Run.llm_calls + trace.usage.calls,
+                "input_tokens": Run.input_tokens + trace.usage.input_tokens,
+                "output_tokens": Run.output_tokens + trace.usage.output_tokens,
+                "work_seconds": Run.work_seconds + (time.perf_counter() - started),
+            }
+
         try:
             async for mode, chunk in self.graph.astream(payload, config, stream_mode=["tasks", "updates"]):
                 if mode == "tasks":
@@ -252,10 +285,10 @@ class RunManager:
 
             snapshot = await self.graph.aget_state(config)
             if snapshot.interrupts:
-                await self._set(run_id, status="awaiting_review")
+                await self._set(run_id, status="awaiting_review", **spent())
                 self._publish(run_id, {"event": "review", "data": snapshot.interrupts[0].value})
             else:
-                await self._set(run_id, status="done")
+                await self._set(run_id, status="done", **spent())
                 result = snapshot.values["result"].model_dump(mode="json")
                 self._publish(run_id, {"event": "done", "data": result})
         except asyncio.CancelledError:
@@ -263,7 +296,7 @@ class RunManager:
         except Exception as exc:
             log.exception("Run %s failed", run_id)
             message = short_error(exc)
-            await self._set(run_id, status="failed", error=message)
+            await self._set(run_id, status="failed", error=message, **spent())
             self._publish(run_id, {"event": "error", "data": {"message": message}})
         finally:
             # Both in one step, with no await between: a new subscriber either gets the None

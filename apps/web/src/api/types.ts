@@ -18,7 +18,16 @@ export interface Step {
   detail: string
 }
 
+export interface Usage {
+  llm_calls: number
+  input_tokens: number
+  output_tokens: number
+  seconds: number // time spent running, not waiting for review
+}
+
 export interface RunView extends RunSummary {
+  usage: Usage
+  trace_url: string | null // the run's session in Langfuse, when tracing is on
   steps: Step[] // the steps that have produced their output so far
   next_step: string | null // running now, waiting for review, or the one that failed
   review: ReviewRequest | null

@@ -36,9 +36,18 @@ class Settings(BaseSettings):
     # Origins allowed to call the API from a browser (the Vite dev server by default)
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # Langfuse tracing (optional): every run's steps, prompts, tokens and latency. Off when the keys are empty
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"
+
     @property
     def gemini_configured(self) -> bool:
         return bool(self.gemini_api_key.strip())
+
+    @property
+    def langfuse_configured(self) -> bool:
+        return bool(self.langfuse_public_key.strip() and self.langfuse_secret_key.strip())
 
 
 @lru_cache
