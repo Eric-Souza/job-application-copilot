@@ -212,6 +212,8 @@ LANGFUSE_HOST=https://cloud.langfuse.com   # or your self-hosted Langfuse
 
 Each segment of a run (up to the review, each revision, a retry) is one trace, and a run's traces share a Langfuse session named by the run id, so a run with two revisions reads as one timeline. The run page links to it. With the keys empty, tracing is off and nothing leaves your machine except the Gemini calls.
 
+Self-hosting Langfuse (it's free, and Docker Compose runs it) keeps traces on your machine too. Langfuse prices calls at Gemini's paid rates; on the free tier, add a model definition in the project's settings that matches `gemini-.+` at $0 so cost reads $0.
+
 ## Free to run
 
 - **Gemini API (AI Studio):** free tier for chat and embeddings.

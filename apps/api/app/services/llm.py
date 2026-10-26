@@ -1,5 +1,10 @@
+import logging
+import re
+import time
 from functools import lru_cache
+from typing import Any
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.exceptions import (
     ModelAPIError,
     ModelConnectionError,
@@ -9,6 +14,8 @@ from langchain_core.exceptions import (
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 from app.config import get_settings
+
+log = logging.getLogger(__name__)
 
 
 def _require_key() -> str:
@@ -30,6 +37,22 @@ def is_transient(exc: Exception) -> bool:
     return any(marker in str(exc) for marker in _TRANSIENT)
 
 
+_RETRY_DELAY = re.compile(r"retryDelay['\"]?:\s*['\"]?(\d+(?:\.\d+)?)s")
+
+
+def daily_quota_reset(exc: BaseException) -> float | None:
+    """Seconds until a used-up daily quota resets, or None if this isn't a daily-quota error.
+
+    Gemini's 429 names the quota (e.g. GenerateRequestsPerDayPerProjectPerModel-FreeTier) and
+    says when to retry. Per-minute limits clear on their own, so they don't count.
+    """
+    text = str(exc)
+    if "RESOURCE_EXHAUSTED" not in text or "PerDay" not in text:
+        return None
+    match = _RETRY_DELAY.search(text)
+    return float(match.group(1)) if match else 3600.0
+
+
 @lru_cache
 def get_chat_model(model: str | None = None) -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
@@ -44,20 +67,51 @@ class ChatWithFallback:
     """The main chat model, falling back to a lighter one when Gemini errors.
 
     The free tier's flash model regularly answers 503 "high demand" for minutes at a time,
-    while the lite model (with a larger quota) keeps working. Nodes only call
-    with_structured_output, so that's the only method this needs.
+    while the lite model (with a larger quota) keeps working. Once the main model's daily quota
+    is used up, it's skipped until the quota resets instead of failing first on every call.
+    Nodes only call with_structured_output, so that's the only method this needs.
     """
 
-    def __init__(self, primary, fallback=None):
-        self.primary, self.fallback = primary, fallback
+    def __init__(self, primary, fallback=None, clock=time.monotonic):
+        self.primary, self.fallback, self.clock = primary, fallback, clock
+        self.primary_resumes_at = 0.0  # clock time; the main model is skipped until then
 
     def with_structured_output(self, schema):
         runnable = self.primary.with_structured_output(schema)
         if self.fallback is None:
             return runnable
-        return runnable.with_fallbacks(
-            [self.fallback.with_structured_output(schema)], exceptions_to_handle=FALLBACK_ON
-        )
+        fallback = self.fallback.with_structured_output(schema)
+        if self.clock() < self.primary_resumes_at:
+            return fallback
+        watched = runnable.with_config(callbacks=[_QuotaWatcher(self)])
+        return watched.with_fallbacks([fallback], exceptions_to_handle=FALLBACK_ON)
+
+    def skip_primary(self, seconds: float) -> None:
+        if self.clock() >= self.primary_resumes_at:
+            hours, minutes = divmod(round(seconds / 60), 60)
+            log.warning(
+                "The main model's daily quota is used up; using the fallback for %dh %dm", hours, minutes
+            )
+        self.primary_resumes_at = max(self.primary_resumes_at, self.clock() + seconds)
+
+
+class _QuotaWatcher(BaseCallbackHandler):
+    """Sees the main model's errors (before the fallback hides them) and spots a used-up daily quota."""
+
+    run_inline = True
+
+    def __init__(self, llm: ChatWithFallback):
+        self.llm = llm
+
+    def _check(self, error: BaseException) -> None:
+        if (seconds := daily_quota_reset(error)) is not None:
+            self.llm.skip_primary(seconds)
+
+    def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        self._check(error)
+
+    def on_chain_error(self, error: BaseException, **kwargs: Any) -> None:
+        self._check(error)
 
 
 def get_agent_llm() -> ChatWithFallback:

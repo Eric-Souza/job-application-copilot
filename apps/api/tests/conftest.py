@@ -17,6 +17,8 @@ if sys.platform == "win32":
 _base_url = make_url(Settings().database_url)
 TEST_DB = f"{_base_url.database}_test"
 os.environ["DATABASE_URL"] = _base_url.set(database=TEST_DB).render_as_string(hide_password=False)
+# Never send test runs to Langfuse, even when .env has keys
+os.environ["LANGFUSE_PUBLIC_KEY"] = os.environ["LANGFUSE_SECRET_KEY"] = ""
 get_settings.cache_clear()
 
 EMBED_DIM = get_settings().embed_dim
