@@ -17,6 +17,7 @@ def _to_evidence(chunk: ExperienceChunk, filename: str, scores: dict[str, float]
         filename=filename,
         section=chunk.section,
         context=chunk.context,
+        heading=chunk.heading,
         content=chunk.content,
         scores=scores,
     )
@@ -82,6 +83,7 @@ def reciprocal_rank_fusion(result_lists: list[list[Evidence]], k: int = 60) -> l
                     filename=item.filename,
                     section=item.section,
                     context=item.context,
+                    heading=item.heading,
                     content=item.content,
                     scores={"rrf": 0.0},
                 )

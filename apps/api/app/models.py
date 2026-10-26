@@ -46,6 +46,8 @@ class ExperienceChunk(Base):
     section: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     # Heading path above the chunk, e.g. "Senior Engineer · Acme (2022 – 2024)"
     context: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Just the heading path (the role), without description lines; empty for top-level bullets
+    heading: Mapped[str] = mapped_column(Text, nullable=False, default="")
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding = mapped_column(Vector(get_settings().embed_dim), nullable=False)
     # Context is searchable too: a bullet about "clinical reports" should match "healthcare"

@@ -17,6 +17,8 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     gemini_chat_model: str = "gemini-3.6-flash"
+    # Used when the chat model errors (the free tier's flash model is often overloaded); "" disables
+    gemini_fallback_model: str = "gemini-3.5-flash-lite"
     gemini_embed_model: str = "gemini-embedding-001"
     # gemini-embedding-001 supports reduced output sizes; 768 keeps the HNSW index small
     embed_dim: int = 768

@@ -16,6 +16,8 @@ def test_one_chunk_per_bullet_with_role_context():
         "Delivery tracking platform, 2M shipments a day"
     )
     assert parcelly[0].content.startswith("Built a delivery-time prediction service")
+    # The heading alone identifies the role, without the description
+    assert parcelly[0].heading == "Senior Backend Engineer · Parcelly (logistics) | Mar 2023 – Present"
     assert parcelly[0].embed_text == f"{parcelly[0].context}\n{parcelly[0].content}"
 
 

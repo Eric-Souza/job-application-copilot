@@ -26,8 +26,9 @@ _EMPHASIS = re.compile(r"(?<!\w)(\*\*|__|\*|_)(?=\S)(.+?)(?<=\S)\1(?!\w)")
 @dataclass
 class TextChunk:
     section: str
-    context: str
+    context: str  # heading path plus any description lines under it
     content: str
+    heading: str = ""  # just the heading path: the role or project this chunk belongs to
 
     @property
     def embed_text(self) -> str:
@@ -100,11 +101,12 @@ def chunk_markdown(markdown: str) -> list[TextChunk]:
         bullets = [clean_inline(" ".join(b)) for b in n.bullets]
         paragraphs = [clean_inline(" ".join(p)) for p in n.paragraphs]
         if bullets:
+            heading = " > ".join(n.path)
             context = " > ".join(n.path + paragraphs)
-            chunks.extend(TextChunk(n.section, context, b) for b in bullets if b)
+            chunks.extend(TextChunk(n.section, context, b, heading) for b in bullets if b)
         else:
-            context = " > ".join(n.path)
-            chunks.extend(TextChunk(n.section, context, p) for p in paragraphs if p)
+            heading = " > ".join(n.path)
+            chunks.extend(TextChunk(n.section, heading, p, heading) for p in paragraphs if p)
     return chunks
 
 

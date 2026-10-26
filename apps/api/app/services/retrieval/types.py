@@ -10,6 +10,7 @@ class Evidence:
     section: str
     context: str
     content: str
+    heading: str = ""
     scores: dict[str, float] = field(default_factory=dict)
 
     @property

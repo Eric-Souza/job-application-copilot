@@ -71,6 +71,7 @@ async def ingest_file(db: AsyncSession, path: Path, force: bool = False) -> Inge
             chunk_index=i,
             section=c.section,
             context=c.context,
+            heading=c.heading,
             content=c.content,
             embedding=e,
         )
