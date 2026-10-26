@@ -17,6 +17,9 @@ def review_request(state: GraphState) -> dict[str, Any]:
         "bullets": [b.model_dump() for b in draft.bullets],
         "warnings": state.get("warnings", []) + draft.warnings,
         "coverage": [m.model_dump() for m in state["matches"]],
+        # So a UI can show what the requirement and evidence ids refer to
+        "requirements": [r.model_dump() for r in state["requirements"]],
+        "evidence": [{"id": e.id, "role": e.anchor, "content": e.content} for e in state.get("evidence", [])],
     }
 
 

@@ -61,6 +61,14 @@ async def test_run_pauses_for_review_then_finishes_on_approve():
         assert (run["title"], run["company"]) == ("Senior Backend Engineer", "Northwind")
         assert [b["text"] for b in run["review"]["bullets"]] == [b.text for b in DRAFT.bullets]
         assert run["result"] is None
+        assert [s["node"] for s in run["steps"]] == [
+            "parse_posting",
+            "retrieve_experience",
+            "match_requirements",
+            "draft_bullets",
+        ]
+        assert run["steps"][0]["detail"] == "3 requirements"
+        assert run["next_step"] == "human_review"
         assert run_id in [r["id"] for r in (await client.get("/runs")).json()]
 
         response = await client.post(f"/runs/{run_id}/review", json={"action": "approve"})
@@ -69,7 +77,8 @@ async def test_run_pauses_for_review_then_finishes_on_approve():
 
         run = (await client.get(f"/runs/{run_id}")).json()
         assert run["status"] == "done"
-        assert run["review"] is None
+        assert (run["review"], run["next_step"]) == (None, None)
+        assert run["steps"][-1]["node"] == "finalize"
         assert run["result"]["coverage"] == {"strong": 1, "partial": 1, "missing": 1}
 
 
@@ -117,6 +126,7 @@ async def test_failed_run_retries_from_the_failed_step():
         run_id = await started(client, runs)
         run = (await client.get(f"/runs/{run_id}")).json()
         assert (run["status"], run["error"]) == ("failed", "Invalid JSON in structured output")
+        assert run["next_step"] == "draft_bullets"
 
         assert (await client.post(f"/runs/{run_id}/retry")).status_code == 202
         await runs.wait(run_id)
@@ -166,6 +176,9 @@ async def test_events_stream_steps_then_the_review():
             ("match_requirements", "1 strong, 1 partial, 1 missing"),
             ("draft_bullets", "draft 1: 2 bullets"),
         ]
+        started = [data["node"] for name, data in events if name == "step"]
+        # The steps after the gate started once the stream was subscribed; earlier ones may have too
+        assert started[-3:] == ["match_requirements", "draft_bullets", "human_review"]
         assert events[-1][0] == "review"
         assert events[-1][1]["revision"] == 1
 

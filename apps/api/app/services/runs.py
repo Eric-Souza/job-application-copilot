@@ -40,9 +40,26 @@ class RunSummary(BaseModel):
     updated_at: datetime
 
 
+class Step(BaseModel):
+    node: str
+    detail: str
+
+
 class RunView(RunSummary):
+    steps: list[Step] = []  # the steps that have produced their output so far
+    next_step: str | None = None  # running now, waiting (human_review), or the one that failed
     review: dict[str, Any] | None = None  # the paused draft, while awaiting review
     result: TailoredResume | None = None  # once done
+
+
+# The state key each step writes, so finished steps can be read back from a checkpoint
+STEP_OUTPUTS = {
+    "parse_posting": "requirements",
+    "retrieve_experience": "evidence",
+    "match_requirements": "matches",
+    "draft_bullets": "draft",
+    "finalize": "result",
+}
 
 
 class RunConflict(Exception):
@@ -113,6 +130,13 @@ class RunManager:
             return None
         view = RunView.model_validate(run)
         snapshot = await self.graph.aget_state(self._config(run_id))
+        values = snapshot.values
+        view.steps = [
+            Step(node=node, detail=describe(node, values))
+            for node, key in STEP_OUTPUTS.items()
+            if key in values
+        ]
+        view.next_step = snapshot.next[0] if snapshot.next else None
         if run.status == "awaiting_review" and snapshot.interrupts:
             view.review = snapshot.interrupts[0].value
         if run.status == "done":
@@ -206,7 +230,12 @@ class RunManager:
     async def _execute(self, run_id: str, payload) -> None:
         config, started = self._config(run_id), time.perf_counter()
         try:
-            async for chunk in self.graph.astream(payload, config, stream_mode="updates"):
+            async for mode, chunk in self.graph.astream(payload, config, stream_mode=["tasks", "updates"]):
+                if mode == "tasks":
+                    if "input" in chunk:  # a step starting (the finish event carries its result instead)
+                        data = {"node": chunk["name"], "elapsed": round(time.perf_counter() - started, 1)}
+                        self._publish(run_id, {"event": "step", "data": data})
+                    continue
                 for node, node_update in chunk.items():
                     if node == "__interrupt__":
                         continue

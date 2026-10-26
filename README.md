@@ -2,7 +2,7 @@
 
 A LangGraph agent that tailors your resume to a job posting. Paste a posting, and the agent extracts the requirements, matches them against your experience with RAG, and drafts tailored resume bullets. You review the drafts before anything is finalized. Every run is saved in Postgres, so you can close the tab and resume later.
 
-> **Status:** milestones 1 to 4 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, and a FastAPI API that streams each step over SSE. The React UI is next.
+> **Status:** milestones 1 to 5 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, a FastAPI API that streams each step over SSE, and a React UI to run and review it all. Tool calling and Langfuse tracing are next.
 
 ## How it works
 
@@ -33,7 +33,8 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 - [x] Human-in-the-loop review with `interrupt` and resume: approve, revise with feedback, or edit
 - [x] Postgres checkpointer (`langgraph-checkpoint-postgres`), so runs survive restarts and can be resumed by thread ID
 - [x] FastAPI endpoints to start runs, follow them, review drafts, and retry failed steps
-- [x] Step streaming over SSE (token streaming to the React UI is still to come)
+- [x] Step streaming over SSE (token streaming is still to come)
+- [x] React UI: paste a posting, watch each step finish, then approve, ask for changes, or edit the draft, and copy or download the result
 - [ ] Tool calling: the agent can fetch more context when a requirement has weak evidence
 - [ ] Langfuse tracing with per-run cost and latency
 - [ ] Optional: load experience through the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) instead of local files
@@ -78,7 +79,11 @@ job-application-copilot/
         review_text.py      # the CLI's review screen and edit file
         schemas.py          # Pydantic models (requirements, matches, bullets)
       tests/
-    web/                    # React UI: posting input, live run view, review screen
+    web/                    # React + MUI: posting input, live run view, review screen
+      src/
+        api/                # typed client and the SSE follower
+        runs/               # step progress and the useRun hook
+        components/         # run list, new run, review panel, result view
   data/resume/              # your resume and project write-ups (gitignored)
   data/samples/             # a fictional sample resume and job posting
   docs/                     # design notes, screenshots
@@ -174,13 +179,25 @@ uvicorn app.main:app --loop app.db:LOOP_FACTORY --port 8000
 | `POST /runs` | Start a run with `{"posting": "..."}`; returns its id right away (202) |
 | `GET /runs` | Recent runs with their status: `running`, `awaiting_review`, `done`, or `failed` |
 | `GET /runs/{id}` | A run's status, the draft under review, or the final resume |
-| `GET /runs/{id}/events` | SSE stream: `status`, then a `node` event per step, then `review`, `done`, or `error` |
+| `GET /runs/{id}/events` | SSE stream: `status`, then `step` and `node` as each step starts and finishes, then `review`, `done`, or `error` |
 | `POST /runs/{id}/review` | `{"action": "approve"}`, `{"action": "revise", "feedback": "..."}`, or `{"action": "edit", "summary": "...", "bullets": [...]}` |
 | `POST /runs/{id}/retry` | Continue a failed run from the step that failed |
 | `POST /experience/ingest` | Index `data/resume/` |
 | `GET /experience/search?q=...` | Search your experience (`mode` = vector, keyword, or hybrid) |
 
-Interactive docs are at `http://localhost:8000/docs`. Runs that were in progress when the server stopped are marked failed on startup and can be retried. Runs started from the CLI don't show up in `GET /runs`. The React UI lands in the next milestone.
+Interactive docs are at `http://localhost:8000/docs`. Runs that were in progress when the server stopped are marked failed on startup and can be retried. Runs started from the CLI don't show up in `GET /runs`.
+
+### Web UI
+
+With the API running on port 8000, start the UI from `apps/web` (Node 20.19+):
+
+```bash
+npm install
+npm run dev                  # http://localhost:5173, proxies /api to localhost:8000
+npm test                     # Vitest, no API needed
+```
+
+Paste a posting and press Start. Steps tick off as they finish, then the draft shows up for review: bullets grouped by role, with their requirement and evidence ids (hover for what they refer to), any grounding flags, and a coverage table with the model's reasoning for each requirement. Approve it, ask for changes in plain words, or edit the text yourself. A failed run (a Gemini quota error, say) has a Retry button that continues from the failing step. Runs are listed on the left, and a run's page can be reloaded or bookmarked at any point.
 
 ## Free to run
 

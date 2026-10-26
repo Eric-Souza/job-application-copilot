@@ -44,6 +44,8 @@ async def test_pauses_on_the_draft_until_reviewed():
     assert request["summary"] == DRAFT.summary
     assert [b["text"] for b in request["bullets"]] == [b.text for b in DRAFT.bullets]
     assert [m["coverage"] for m in request["coverage"]] == ["strong", "partial", "missing"]
+    assert [r["id"] for r in request["requirements"]] == ["R1", "R2", "R3"]
+    assert {e["id"] for e in request["evidence"]} >= {e for b in DRAFT.bullets for e in b.evidence_ids}
     assert (await graph.aget_state(config)).next == ("human_review",)
 
     state = await graph.ainvoke(Command(resume={"action": "approve"}), config)
