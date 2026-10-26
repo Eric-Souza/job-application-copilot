@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: copilot
       POSTGRES_DB: copilot
     ports:
-      - "5432:5432"
+      - "5435:5432"  # 5435 so it can run next to other local Postgres containers
     volumes:
       - pgdata:/var/lib/postgresql/data
 

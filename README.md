@@ -2,7 +2,7 @@
 
 A LangGraph agent that tailors your resume to a job posting. Paste a posting, and the agent extracts the requirements, matches them against your experience with RAG, and drafts tailored resume bullets. You review the drafts before anything is finalized. Every run is saved in Postgres, so you can close the tab and resume later.
 
-> **Status:** planning and project structure. Implementation in progress.
+> **Status:** the experience index (milestone 1) works: resume chunking, Gemini embeddings, and hybrid search in pgvector. The LangGraph agent is next.
 
 ## How it works
 
@@ -28,7 +28,7 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 
 - [ ] LangGraph `StateGraph` with typed state and conditional edges
 - [ ] Structured outputs with Pydantic models for requirements, matches, and bullets
-- [ ] RAG over your experience: chunking, Gemini embeddings, pgvector, hybrid search
+- [x] RAG over your experience: resume-aware chunking, Gemini embeddings, pgvector, hybrid search (vector + Postgres full-text, merged with Reciprocal Rank Fusion)
 - [ ] Human-in-the-loop review with `interrupt` and resume
 - [ ] Postgres checkpointer (`langgraph-checkpoint-postgres`), so runs survive restarts and can be resumed by thread ID
 - [ ] Token and step streaming to the React UI over SSE
@@ -62,11 +62,17 @@ job-application-copilot/
           builder.py        # StateGraph wiring, checkpointer
           nodes/            # parse_posting, retrieve_experience, match, draft, review, finalize
         routers/            # runs, review decisions, SSE stream, experience ingestion
-        services/           # embeddings, retrieval, LLM providers
+        services/
+          chunking.py       # resume Markdown -> one chunk per bullet, tagged with its role
+          ingest.py         # embed and index files, skip unchanged ones, prune removed ones
+          retrieval/        # vector, keyword, and hybrid (RRF) search
+          llm.py            # Gemini chat model and embeddings
+        cli.py              # python -m app.cli ingest | search
         schemas.py          # Pydantic models (requirements, matches, bullets)
       tests/
     web/                    # React UI: posting input, live run view, review screen
-  data/resume/              # your resume and project write-ups (gitignored except samples)
+  data/resume/              # your resume and project write-ups (gitignored)
+  data/samples/             # a fictional sample resume, used by the tests
   docs/                     # design notes, screenshots
   docker-compose.yml        # Postgres 16 + pgvector
   .env.example
@@ -74,14 +80,39 @@ job-application-copilot/
 
 ## Getting started
 
-Setup instructions will be added as the implementation lands. The plan:
-
 ```bash
 cp .env.example .env        # add GEMINI_API_KEY
-docker compose up -d        # Postgres + pgvector
-# backend: apps/api   → pip install -e . && uvicorn app.main:app --reload
-# frontend: apps/web  → npm install && npm run dev
+docker compose up -d        # Postgres + pgvector on localhost:5435
+
+cd apps/api
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
 ```
+
+Put your resume in `data/resume/` as Markdown (see [`data/resume/README.md`](data/resume/README.md) for the format, and [`data/samples/sample-resume.md`](data/samples/sample-resume.md) for an example). Then index it and try a search:
+
+```bash
+python -m app.cli ingest                     # one batched embedding request per changed file
+python -m app.cli search "Kafka microservices" -k 3
+```
+
+```
+1. [Technical Skills]
+   Architecture: System design, microservices, event-driven systems (Kafka, Pub/Sub), multi-tenant SaaS
+   rrf=0.033 vector=0.669 keyword=0.400
+2. [Experience] Full Stack Engineer · Zro Bank | Jul 2020 – Jun 2022 > Multi-currency digital bank (fintech)
+   Scaled the core banking app's backend by splitting it into NestJS microservices that communicate over Apache Kafka, ...
+```
+
+Each chunk is one resume bullet, and its role heading is embedded and indexed with it, so a requirement like "healthcare experience" finds bullets whose only mention of healthcare is the job title above them.
+
+Tests run against a separate `copilot_test` database and never call Gemini:
+
+```bash
+pytest
+```
+
+The API and the React UI land in later milestones.
 
 ## Free to run
 
