@@ -1,5 +1,6 @@
 """The full graph with a fake LLM: routing, id handling, and validation of what the LLM returns."""
 
+from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import REPO_ROOT
@@ -10,7 +11,7 @@ from app.services import ingest
 from app.services.ingest import ingest_file
 from app.services.retrieval import search_many
 from tests.conftest import axis_vector
-from tests.fakes import FakeLLM, evidence, fixed_search
+from tests.fakes import FakeLLM, evidence, fixed_search, memory_saver
 
 ANALYSIS = PostingAnalysis(
     title="Senior Backend Engineer",
@@ -30,9 +31,14 @@ HITS = {
 }
 
 
-def run(llm: FakeLLM, search=None):
-    graph = build_graph(Deps(llm=llm, search=search or fixed_search(HITS)))
-    return graph.ainvoke({"posting": "Senior Backend Engineer at Northwind..."})
+async def run(llm: FakeLLM, search=None):
+    """Run the graph to the end, approving the draft if it pauses for review."""
+    graph = build_graph(Deps(llm=llm, search=search or fixed_search(HITS)), checkpointer=memory_saver())
+    config = {"configurable": {"thread_id": "test"}}
+    state = await graph.ainvoke({"posting": "Senior Backend Engineer at Northwind..."}, config)
+    if "__interrupt__" in state:
+        state = await graph.ainvoke(Command(resume={"action": "approve"}), config)
+    return state
 
 
 def good_matches(_messages) -> MatchReport:

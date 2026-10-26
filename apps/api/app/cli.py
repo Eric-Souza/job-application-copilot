@@ -3,24 +3,35 @@
 python -m app.cli ingest                 # index data/resume/ (skips unchanged files)
 python -m app.cli ingest path/to/file.md --force
 python -m app.cli search "Kubernetes in production" -k 5 --mode hybrid
-python -m app.cli tailor posting.md      # run the agent, print the tailored section
-python -m app.cli tailor posting.md --out result.md --json state.json
+python -m app.cli tailor posting.md      # run the agent, review the draft, print the result
+python -m app.cli tailor posting.md --out result.md --json state.json --yes
+python -m app.cli resume <run id>        # continue a run you quit, or one that stopped on an error
 """
 
 import argparse
 import asyncio
 import json
+import os
+import shlex
+import subprocess
 import sys
+import tempfile
 import time
+import uuid
 from pathlib import Path
 
+from langgraph.types import Command
 from pydantic_core import to_jsonable_python
 
 from app.config import get_settings
 from app.db import LOOP_FACTORY, AsyncSessionLocal, engine, init_db
 from app.graph.builder import build_graph
+from app.graph.checkpointer import postgres_checkpointer
+from app.review_text import edit_text, format_request, parse_edit
 from app.services.ingest import find_files, ingest_file, remove_missing
 from app.services.retrieval import MODES, search_experience
+
+APPROVE = {"action": "approve"}
 
 
 async def _ingest(paths: list[str], force: bool) -> None:
@@ -48,15 +59,80 @@ async def _search(query: str, k: int, mode: str | None) -> None:
         print(f"{i}. [{e.section}] {e.context}\n   {e.content}\n   {scores}\n")
 
 
-async def _tailor(posting_path: str, out: str | None, state_out: str | None) -> None:
-    posting = Path(posting_path).read_text(encoding="utf-8")
-    state, started = {}, time.perf_counter()
-    async for mode, chunk in build_graph().astream({"posting": posting}, stream_mode=["updates", "values"]):
-        if mode == "values":
-            state = chunk
-        else:
-            for node in chunk:
-                print(f"{time.perf_counter() - started:6.1f}s  {node}", file=sys.stderr)
+def _edit_in_editor(request: dict) -> dict:
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or ("notepad" if os.name == "nt" else "vi")
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
+        f.write(edit_text(request))
+    try:
+        subprocess.run([*shlex.split(editor, posix=os.name != "nt"), f.name], check=True)
+        return parse_edit(Path(f.name).read_text(encoding="utf-8"), request)
+    finally:
+        os.unlink(f.name)
+
+
+def _ask_review(request: dict) -> dict | None:
+    """Show the draft and return a decision, or None to stop here and resume later."""
+    print(f"\n{format_request(request)}\n")
+    try:
+        while True:
+            choice = input("[a]pprove  [r]evise  [e]dit  [q]uit and resume later: ").strip().lower()[:1]
+            if choice == "a":
+                return APPROVE
+            if choice == "r" and (feedback := input("What should change? ").strip()):
+                return {"action": "revise", "feedback": feedback}
+            if choice == "e":
+                try:
+                    return _edit_in_editor(request)
+                except (ValueError, OSError, subprocess.CalledProcessError) as e:
+                    print(f"Edit not applied: {e}")
+            if choice == "q":
+                return None
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+
+async def _drive(graph, config: dict, payload, auto_approve: bool, run: bool = True) -> dict | None:
+    """Run the graph, reviewing each draft, until it finishes (state) or the reviewer quits (None)."""
+    started = time.perf_counter()
+    while True:
+        if run:
+            async for chunk in graph.astream(payload, config, stream_mode="updates"):
+                for node in chunk:
+                    if node != "__interrupt__":
+                        print(f"{time.perf_counter() - started:6.1f}s  {node}", file=sys.stderr)
+        snapshot = await graph.aget_state(config)
+        if not snapshot.interrupts:
+            return snapshot.values
+        decision = APPROVE if auto_approve else _ask_review(snapshot.interrupts[0].value)
+        if decision is None:
+            return None
+        payload, run = Command(resume=decision), True
+
+
+async def _run(thread_id: str, posting: str | None, out, state_out, auto_approve: bool) -> None:
+    """Start a run (posting given) or pick one up by id. Every step is saved in Postgres."""
+    config = {"configurable": {"thread_id": thread_id}}
+    print(f"Run {thread_id}", file=sys.stderr)
+    async with postgres_checkpointer() as saver:
+        graph = build_graph(checkpointer=saver)
+        try:
+            if posting is not None:
+                state = await _drive(graph, config, {"posting": posting}, auto_approve)
+            else:
+                snapshot = await graph.aget_state(config)
+                if not snapshot.values:
+                    sys.exit(f"No run with id {thread_id}.")
+                # Paused for review: ask first. Stopped on an error: astream(None) continues it.
+                run = bool(snapshot.next) and not snapshot.interrupts
+                state = await _drive(graph, config, None, auto_approve, run=run)
+        except Exception:
+            print(
+                f"\nThe run stopped. Continue it with: python -m app.cli resume {thread_id}", file=sys.stderr
+            )
+            raise
+    if state is None:
+        print(f"\nSaved. Continue with: python -m app.cli resume {thread_id}", file=sys.stderr)
+        return
     result = state["result"]
     if out:
         Path(out).write_text(result.markdown, encoding="utf-8")
@@ -72,10 +148,19 @@ async def _main(args: argparse.Namespace) -> None:
             await _ingest(args.paths, args.force)
         elif args.command == "search":
             await _search(args.query, args.k, args.mode)
+        elif args.command == "tailor":
+            posting = Path(args.posting).read_text(encoding="utf-8")
+            await _run(str(uuid.uuid4()), posting, args.out, args.json, args.yes)
         else:
-            await _tailor(args.posting, args.out, args.json)
+            await _run(args.run_id, None, args.out, args.json, args.yes)
     finally:
         await engine.dispose()
+
+
+def _output_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--out", help="also write the tailored section to this Markdown file")
+    parser.add_argument("--json", help="write the full graph state to this JSON file")
+    parser.add_argument("--yes", action="store_true", help="approve the draft without reviewing it")
 
 
 def main() -> None:
@@ -90,8 +175,10 @@ def main() -> None:
     search.add_argument("--mode", choices=MODES)
     tailor = sub.add_parser("tailor", help="tailor the indexed resume to a job posting")
     tailor.add_argument("posting", help="a text or Markdown file with the job posting")
-    tailor.add_argument("--out", help="also write the tailored section to this Markdown file")
-    tailor.add_argument("--json", help="write the full graph state to this JSON file")
+    _output_args(tailor)
+    resume = sub.add_parser("resume", help="continue a saved run by its id")
+    resume.add_argument("run_id")
+    _output_args(resume)
     asyncio.run(_main(parser.parse_args()), loop_factory=LOOP_FACTORY)
 
 

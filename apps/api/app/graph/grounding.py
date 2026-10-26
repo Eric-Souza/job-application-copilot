@@ -8,7 +8,8 @@ not a guarantee. The first real run showed the typical failures, and each one is
 - numbers the cited evidence doesn't contain ("cut by 40%") -> flagged
 - a skill from the skills list that this role never used   -> flagged
 
-Flags don't remove a bullet; they tell the reviewer exactly what to check.
+Flags don't remove a bullet; they tell the reviewer exactly what to check. The same checks
+run on the reviewer's own edits.
 """
 
 import re
@@ -96,3 +97,11 @@ def check_draft(
         else:
             kept.append(checked)
     return kept, dropped
+
+
+def check_summary(summary: str, evidence: dict[str, EvidenceItem]) -> list[str]:
+    """The summary may draw on any evidence, so only numbers missing from the whole pool count."""
+    pool_text = " ".join(f"{e.context} {e.content}" for e in evidence.values())
+    if unsupported := sorted(numbers_in(summary) - numbers_in(pool_text)):
+        return [f"The summary has numbers not in the evidence: {', '.join(unsupported)}"]
+    return []

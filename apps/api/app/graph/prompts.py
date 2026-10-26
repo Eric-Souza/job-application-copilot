@@ -36,6 +36,11 @@ Rules:
 - The summary is 2 to 3 sentences, grounded in the evidence.
 Cite evidence ids exactly as given (E3) and requirement ids (R2)."""
 
+REVISE_SYSTEM = """The candidate reviewed your previous draft and asked for changes.
+Apply their feedback, keep what they didn't ask to change, and follow all the rules above.
+Feedback can change wording, emphasis, and which evidence you use. It can't add claims
+the evidence doesn't support; if it asks for that, leave it out."""
+
 PROFILE_GROUP = "Profile (for the summary only)"
 
 
@@ -79,4 +84,12 @@ def draft_user(analysis, requirements, matches, evidence) -> str:
         f"Requirements the candidate covers:\n{req_lines}\n\n"
         f"Evidence by role:\n\n{evidence_lines}\n\n"
         f"Gaps (don't claim these):\n{gap_lines}"
+    )
+
+
+def revise_user(draft, feedback: str) -> str:
+    bullets = "\n".join(f"- {b.text} ({', '.join(b.evidence_ids)})" for b in draft.bullets) or "- none"
+    return (
+        f"Your previous draft:\n\nSummary: {draft.summary}\n\nBullets:\n{bullets}\n\n"
+        f"Reviewer feedback:\n{feedback.strip()}"
     )

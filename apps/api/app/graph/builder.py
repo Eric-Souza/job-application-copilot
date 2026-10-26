@@ -1,7 +1,10 @@
 """Wire the nodes into a LangGraph StateGraph.
 
-parse_posting -> retrieve_experience -> match_requirements -> draft_bullets -> finalize
-                                                      \\________(nothing covered)______/
+parse_posting -> retrieve_experience -> match_requirements -> draft_bullets -> human_review -> finalize
+
+- match_requirements skips straight to finalize when nothing is covered.
+- human_review pauses with interrupt() and routes itself: approve -> finalize,
+  revise -> draft_bullets, edit -> human_review again. Pausing needs a checkpointer.
 """
 
 from functools import partial
@@ -10,7 +13,14 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
 
 from app.db import AsyncSessionLocal
-from app.graph.nodes import draft_bullets, finalize, match_requirements, parse_posting, retrieve_experience
+from app.graph.nodes import (
+    draft_bullets,
+    finalize,
+    human_review,
+    match_requirements,
+    parse_posting,
+    retrieve_experience,
+)
 from app.graph.state import Deps, GraphState
 from app.services.llm import get_agent_llm, is_transient
 from app.services.retrieval import search_many
@@ -43,12 +53,13 @@ def build_graph(deps: Deps | None = None, checkpointer=None):
     graph.add_node("retrieve_experience", partial(retrieve_experience, deps=deps))
     graph.add_node("match_requirements", partial(match_requirements, deps=deps), retry_policy=LLM_RETRY)
     graph.add_node("draft_bullets", partial(draft_bullets, deps=deps), retry_policy=LLM_RETRY)
+    graph.add_node("human_review", human_review)  # routes itself with Command
     graph.add_node("finalize", finalize)
 
     graph.add_edge(START, "parse_posting")
     graph.add_edge("parse_posting", "retrieve_experience")
     graph.add_edge("retrieve_experience", "match_requirements")
     graph.add_conditional_edges("match_requirements", after_match, ["draft_bullets", "finalize"])
-    graph.add_edge("draft_bullets", "finalize")
+    graph.add_edge("draft_bullets", "human_review")
     graph.add_edge("finalize", END)
     return graph.compile(checkpointer=checkpointer)

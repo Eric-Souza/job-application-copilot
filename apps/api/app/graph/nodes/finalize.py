@@ -1,5 +1,4 @@
-from app.graph.grounding import numbers_in
-from app.graph.state import GraphState, evidence_map
+from app.graph.state import GraphState
 from app.schemas import Draft, TailoredResume
 
 
@@ -50,10 +49,7 @@ async def finalize(state: GraphState) -> GraphState:
         if m.coverage == "missing" and by_id[m.requirement_id].kind == "must"
     ]
 
-    warnings = list(state.get("warnings", []))
-    pool_text = " ".join(f"{e.context} {e.content}" for e in evidence_map(state).values())
-    if unsupported := sorted(numbers_in(draft.summary) - numbers_in(pool_text)):
-        warnings.append(f"The summary has numbers not in the evidence: {', '.join(unsupported)}")
+    warnings = state.get("warnings", []) + draft.warnings
 
     result = TailoredResume(
         title=analysis.title,

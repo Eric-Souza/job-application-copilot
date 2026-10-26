@@ -2,7 +2,7 @@
 
 A LangGraph agent that tailors your resume to a job posting. Paste a posting, and the agent extracts the requirements, matches them against your experience with RAG, and drafts tailored resume bullets. You review the drafts before anything is finalized. Every run is saved in Postgres, so you can close the tab and resume later.
 
-> **Status:** the experience index and the core LangGraph agent (milestones 1 and 2) work from the CLI: parse a posting, retrieve evidence, match requirements, draft grounded bullets. Human review with a Postgres checkpointer is next.
+> **Status:** milestones 1 to 3 work from the CLI: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), and human review with a Postgres checkpointer. The FastAPI endpoints and SSE streaming to the React UI are next.
 
 ## How it works
 
@@ -21,7 +21,7 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 2. **retrieve_experience:** for each requirement, hybrid search over your resume, project write-ups, and articles stored in pgvector.
 3. **match_requirements:** scores coverage per requirement and lists gaps, with the evidence it found.
 4. **draft_bullets:** writes tailored bullets that cite which experience each one came from. It only uses retrieved evidence, so it doesn't invent experience.
-5. **human_review:** the graph pauses with a LangGraph `interrupt`. You approve, edit, or ask for changes, and changes loop back to drafting.
+5. **human_review:** the graph pauses with a LangGraph `interrupt`. You approve, edit, or ask for a revision. A revision loops back to drafting with your feedback and the previous draft. Edits go through the same grounding checks as the model's bullets and come back for review, so you see any new flags before approving.
 6. **finalize:** produces the tailored resume section and a short summary you can paste into an application.
 
 ## Features
@@ -30,8 +30,8 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 - [x] Structured outputs with Pydantic models for requirements, matches, and bullets
 - [x] Grounding checks in code: every bullet must cite one role's evidence; invented numbers, mixed roles, and tools that role never used are flagged
 - [x] RAG over your experience: resume-aware chunking, Gemini embeddings, pgvector, hybrid search (vector + Postgres full-text, merged with Reciprocal Rank Fusion)
-- [ ] Human-in-the-loop review with `interrupt` and resume
-- [ ] Postgres checkpointer (`langgraph-checkpoint-postgres`), so runs survive restarts and can be resumed by thread ID
+- [x] Human-in-the-loop review with `interrupt` and resume: approve, revise with feedback, or edit
+- [x] Postgres checkpointer (`langgraph-checkpoint-postgres`), so runs survive restarts and can be resumed by thread ID
 - [ ] Token and step streaming to the React UI over SSE
 - [ ] Tool calling: the agent can fetch more context when a requirement has weak evidence
 - [ ] Langfuse tracing with per-run cost and latency
@@ -62,7 +62,8 @@ job-application-copilot/
           state.py          # typed graph state
           builder.py        # StateGraph wiring, retry policies, checkpointer
           prompts.py        # system and user prompts per node
-          grounding.py      # deterministic checks on drafted bullets
+          grounding.py      # deterministic checks on drafted and edited bullets
+          checkpointer.py   # Postgres checkpointer and the serializer allowlist for state models
           nodes/            # parse_posting, retrieve_experience, match, draft, review, finalize
         routers/            # runs, review decisions, SSE stream, experience ingestion
         services/
@@ -70,7 +71,8 @@ job-application-copilot/
           ingest.py         # embed and index files, skip unchanged ones, prune removed ones
           retrieval/        # vector, keyword, and hybrid (RRF) search
           llm.py            # Gemini chat model (with a lite fallback) and embeddings
-        cli.py              # python -m app.cli ingest | search | tailor
+        cli.py              # python -m app.cli ingest | search | tailor | resume
+        review_text.py      # the CLI's review screen and edit file
         schemas.py          # Pydantic models (requirements, matches, bullets)
       tests/
     web/                    # React UI: posting input, live run view, review screen
@@ -122,12 +124,37 @@ python -m app.cli tailor ../../data/samples/postings/senior-ai-engineer.md --out
 ```
 
 ```
+Run e32be77a-d01e-4bcb-b85c-ba4ce704e1c3
    7.9s  parse_posting
    9.7s  retrieve_experience
   37.8s  match_requirements
   52.7s  draft_bullets
-  52.7s  finalize
+
+Draft 1
+
+Summary:
+  Senior Full Stack & AI Engineer with over 8 years of experience ...
+
+Bullets:
+  [1] Built a document processing RAG chat system using Python, FastAPI, Gemini, Chroma, and React, ...
+      AI Side Projects > Doc Processing AI · E10
+  ...
+
+[a]pprove  [r]evise  [e]dit  [q]uit and resume later:
 ```
+
+The run pauses on the draft:
+
+- **approve** finalizes it.
+- **revise** asks what should change and redrafts with your feedback.
+- **edit** opens the summary and bullets in `$EDITOR` (Notepad on Windows). Each bullet keeps its `[n]`, which links it to its evidence, and deleting a line drops that bullet. Edited bullets are grounding-checked like the model's, then shown again.
+- **quit** saves the run. Every step is checkpointed in Postgres, so you can continue later, even after a restart, and a run that stopped on an API error picks up at the step that failed:
+
+```bash
+python -m app.cli resume e32be77a-d01e-4bcb-b85c-ba4ce704e1c3
+```
+
+Add `--yes` to approve the first draft without reviewing it.
 
 The output has a summary, bullets grouped by the role they came from, a requirement coverage table (strong, partial, missing, with the evidence ids), and the must-haves with no evidence. Any bullet that fails a grounding check carries a `Check:` line saying what to verify.
 

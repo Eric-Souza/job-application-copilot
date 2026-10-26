@@ -3,7 +3,7 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 RequirementKind = Literal["must", "nice"]
 Coverage = Literal["strong", "partial", "missing"]
@@ -110,6 +110,34 @@ class Bullet(BulletSpec):
 class Draft(BaseModel):
     summary: str
     bullets: list[Bullet]
+    # Dropped bullets and summary problems. Kept with the draft, so a revision replaces them
+    warnings: list[str] = Field(default_factory=list)
+    revision: int = 1
+
+
+# --- human_review --------------------------------------------------------------------------
+
+
+class ReviewDecision(BaseModel):
+    """What the reviewer sends back when the graph pauses on a draft.
+
+    approve: finalize this draft.
+    revise:  redraft with the feedback.
+    edit:    replace the summary and/or bullets, then review again (edits are checked too).
+    """
+
+    action: Literal["approve", "revise", "edit"]
+    feedback: str = ""
+    summary: str | None = None
+    bullets: list[BulletSpec] | None = None
+
+    @model_validator(mode="after")
+    def _has_what_the_action_needs(self) -> "ReviewDecision":
+        if self.action == "revise" and not self.feedback.strip():
+            raise ValueError("revise needs feedback")
+        if self.action == "edit" and self.summary is None and self.bullets is None:
+            raise ValueError("edit needs a summary or bullets")
+        return self
 
 
 # --- finalize ------------------------------------------------------------------------------

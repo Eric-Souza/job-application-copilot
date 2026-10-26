@@ -1,6 +1,9 @@
 from collections.abc import Callable
 from typing import Any
 
+from langgraph.checkpoint.memory import InMemorySaver
+
+from app.graph.checkpointer import serializer
 from app.services.retrieval import Evidence
 
 
@@ -51,3 +54,8 @@ def fixed_search(results: dict[str, list[Evidence]]):
 
     search.calls = calls  # type: ignore[attr-defined]
     return search
+
+
+def memory_saver() -> InMemorySaver:
+    """An in-memory checkpointer with the app's serializer, so state round-trips like in Postgres."""
+    return InMemorySaver(serde=serializer())

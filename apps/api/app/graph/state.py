@@ -17,6 +17,7 @@ class GraphState(TypedDict, total=False):
     evidence_by_requirement: dict[str, list[str]]  # requirement id -> evidence ids, best first
     matches: list[Match]
     draft: Draft
+    feedback: str  # the reviewer's last "revise" request, used by the next draft
     # Problems found while validating LLM output, shown to the user at the end
     warnings: Annotated[list[str], operator.add]
     result: TailoredResume
