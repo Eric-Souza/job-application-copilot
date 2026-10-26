@@ -93,6 +93,25 @@ async def test_revise_through_the_api():
         assert (run["status"], run["review"]["revision"]) == ("awaiting_review", 2)
 
 
+async def test_usage_adds_up_across_segments():
+    async with api() as (client, runs):
+        run_id = await started(client, runs)
+
+        run = (await client.get(f"/runs/{run_id}")).json()
+        # parse, match, and draft: one model call each
+        assert run["usage"]["llm_calls"] == 3
+        assert run["usage"]["input_tokens"] == 3 * FakeLLM.USAGE["input_tokens"]
+        assert run["usage"]["output_tokens"] == 3 * FakeLLM.USAGE["output_tokens"]
+        assert run["usage"]["seconds"] >= 0
+        assert run["trace_url"] is None  # no Langfuse keys in tests
+
+        await client.post(f"/runs/{run_id}/review", json={"action": "revise", "feedback": "Shorter."})
+        await runs.wait(run_id)
+
+        run = (await client.get(f"/runs/{run_id}")).json()
+        assert run["usage"]["llm_calls"] == 4  # the redraft
+
+
 async def test_review_is_validated_and_only_allowed_while_paused():
     async with api() as (client, runs):
         run_id = await started(client, runs)

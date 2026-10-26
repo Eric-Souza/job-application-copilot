@@ -127,6 +127,8 @@ export function runView(overrides: Partial<RunView> = {}): RunView {
     updated_at: '2026-10-26T12:00:00Z',
     steps: [],
     next_step: 'parse_posting',
+    usage: { llm_calls: 0, input_tokens: 0, output_tokens: 0, seconds: 0 },
+    trace_url: null,
     review: null,
     result: null,
     ...overrides,

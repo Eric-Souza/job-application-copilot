@@ -2,7 +2,7 @@
 
 A LangGraph agent that tailors your resume to a job posting. Paste a posting, and the agent extracts the requirements, matches them against your experience with RAG, and drafts tailored resume bullets. You review the drafts before anything is finalized. Every run is saved in Postgres, so you can close the tab and resume later.
 
-> **Status:** milestones 1 to 5 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, a FastAPI API that streams each step over SSE, and a React UI to run and review it all. Tool calling and Langfuse tracing are next.
+> **Status:** milestones 1 to 5 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, a FastAPI API that streams each step over SSE, a React UI to run and review it all, and per-run usage with optional Langfuse tracing. Tool calling is next.
 
 ## How it works
 
@@ -36,7 +36,7 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 - [x] Step streaming over SSE (token streaming is still to come)
 - [x] React UI: paste a posting, watch each step finish, then approve, ask for changes, or edit the draft, and copy or download the result
 - [ ] Tool calling: the agent can fetch more context when a requirement has weak evidence
-- [ ] Langfuse tracing with per-run cost and latency
+- [x] Per-run usage (model calls, tokens, time) and Langfuse tracing of every step and prompt
 - [ ] Optional: load experience through the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) instead of local files
 
 ## Stack
@@ -70,6 +70,7 @@ job-application-copilot/
         routers/            # runs, review decisions, SSE stream, experience ingestion
         services/
           runs.py           # runs the graph in the background, tracks status, publishes events
+        tracing.py        # usage counting, and Langfuse tracing when its keys are set
           chunking.py       # resume Markdown -> one chunk per bullet, tagged with its role
           ingest.py         # embed and index files, skip unchanged ones, prune removed ones
           retrieval/        # vector, keyword, and hybrid (RRF) search
@@ -178,7 +179,7 @@ uvicorn app.main:app --loop app.db:LOOP_FACTORY --port 8000
 |---|---|
 | `POST /runs` | Start a run with `{"posting": "..."}`; returns its id right away (202) |
 | `GET /runs` | Recent runs with their status: `running`, `awaiting_review`, `done`, or `failed` |
-| `GET /runs/{id}` | A run's status, the draft under review, or the final resume |
+| `GET /runs/{id}` | A run's status, the draft under review or the final resume, its usage, and its Langfuse link |
 | `GET /runs/{id}/events` | SSE stream: `status`, then `step` and `node` as each step starts and finishes, then `review`, `done`, or `error` |
 | `POST /runs/{id}/review` | `{"action": "approve"}`, `{"action": "revise", "feedback": "..."}`, or `{"action": "edit", "summary": "...", "bullets": [...]}` |
 | `POST /runs/{id}/retry` | Continue a failed run from the step that failed |
@@ -198,6 +199,18 @@ npm test                     # Vitest, no API needed
 ```
 
 Paste a posting and press Start. Steps tick off as they finish, then the draft shows up for review: bullets grouped by role, with their requirement and evidence ids (hover for what they refer to), any grounding flags, and a coverage table with the model's reasoning for each requirement. Approve it, ask for changes in plain words, or edit the text yourself. A failed run (a Gemini quota error, say) has a Retry button that continues from the failing step. Runs are listed on the left, and a run's page can be reloaded or bookmarked at any point.
+
+### Tracing
+
+Every run counts its model calls, tokens, and the time it spent running (not the time it waited for you), and shows them in the UI and the CLI. For a full trace of each step, with the prompts, responses, token counts, cost, and latency of every model call, set the Langfuse keys in `.env`:
+
+```bash
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=https://cloud.langfuse.com   # or your self-hosted Langfuse
+```
+
+Each segment of a run (up to the review, each revision, a retry) is one trace, and a run's traces share a Langfuse session named by the run id, so a run with two revisions reads as one timeline. The run page links to it. With the keys empty, tracing is off and nothing leaves your machine except the Gemini calls.
 
 ## Free to run
 

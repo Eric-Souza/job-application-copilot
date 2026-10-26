@@ -16,6 +16,7 @@ from app.graph.builder import build_graph, default_deps
 from app.graph.checkpointer import postgres_checkpointer
 from app.graph.state import Deps
 from app.routers import experience, runs
+from app.services import tracing
 from app.services.runs import RunManager
 
 
@@ -32,6 +33,7 @@ def create_app(deps: Deps | None = None, checkpointer=None) -> FastAPI:
             app.state.runs = manager
             yield
             await manager.shutdown()
+            tracing.flush()
 
     app = FastAPI(title="Job Application Copilot", lifespan=lifespan)
     app.add_middleware(

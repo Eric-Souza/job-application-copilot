@@ -28,6 +28,7 @@ from app.db import LOOP_FACTORY, AsyncSessionLocal, engine, init_db
 from app.graph.builder import build_graph
 from app.graph.checkpointer import postgres_checkpointer
 from app.review_text import edit_text, format_request, parse_edit
+from app.services import tracing
 from app.services.ingest import find_files, ingest_file, remove_missing
 from app.services.retrieval import MODES, search_experience
 
@@ -93,13 +94,22 @@ def _ask_review(request: dict) -> dict | None:
 
 async def _drive(graph, config: dict, payload, auto_approve: bool, run: bool = True) -> dict | None:
     """Run the graph, reviewing each draft, until it finishes (state) or the reviewer quits (None)."""
-    started = time.perf_counter()
+    run_id = config["configurable"]["thread_id"]
+    calls = tokens = 0
     while True:
         if run:
-            async for chunk in graph.astream(payload, config, stream_mode="updates"):
-                for node in chunk:
-                    if node != "__interrupt__":
-                        print(f"{time.perf_counter() - started:6.1f}s  {node}", file=sys.stderr)
+            # One trace per segment, like the API: start, each review, a resume after an error
+            segment = "start" if isinstance(payload, dict) else "retry" if payload is None else "review"
+            started = time.perf_counter()
+            with tracing.traced(run_id, segment) as trace:
+                segment_config = {**config, "callbacks": trace.callbacks}
+                async for chunk in graph.astream(payload, segment_config, stream_mode="updates"):
+                    for node in chunk:
+                        if node != "__interrupt__":
+                            print(f"{time.perf_counter() - started:6.1f}s  {node}", file=sys.stderr)
+            calls += trace.usage.calls
+            tokens += trace.usage.input_tokens + trace.usage.output_tokens
+            print(f"        {calls} model calls, {tokens:,} tokens so far", file=sys.stderr)
         snapshot = await graph.aget_state(config)
         if not snapshot.interrupts:
             return snapshot.values
@@ -155,6 +165,7 @@ async def _main(args: argparse.Namespace) -> None:
             await _run(args.run_id, None, args.out, args.json, args.yes)
     finally:
         await engine.dispose()
+        tracing.flush()
 
 
 def _output_args(parser: argparse.ArgumentParser) -> None:

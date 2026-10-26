@@ -1,12 +1,14 @@
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Link from '@mui/material/Link'
 import LinearProgress from '@mui/material/LinearProgress'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { api } from '../api/client'
 import type { RunView } from '../api/types'
+import { usageLine } from '../format'
 import { stepRows } from '../runs/progress'
 import { useRun } from '../runs/useRun'
 import { ResultView } from './ResultView'
@@ -50,6 +52,20 @@ function Header({ run }: { run: RunView }) {
         {run.company && <Typography color="text.secondary">{run.company}</Typography>}
       </div>
       <StatusChip status={run.status} />
+      <Box sx={{ flexGrow: 1 }} />
+      {run.usage.llm_calls > 0 && (
+        <Typography variant="body2" color="text.secondary" title="Across all steps, not counting your review">
+          {usageLine(run.usage)}
+          {run.trace_url && (
+            <>
+              {' · '}
+              <Link href={run.trace_url} target="_blank" rel="noreferrer">
+                Trace
+              </Link>
+            </>
+          )}
+        </Typography>
+      )}
     </Stack>
   )
 }

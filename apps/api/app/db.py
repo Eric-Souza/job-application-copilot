@@ -21,6 +21,14 @@ engine = create_async_engine(settings.database_url, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+RUN_USAGE_COLUMNS = [
+    "llm_calls INTEGER NOT NULL DEFAULT 0",
+    "input_tokens INTEGER NOT NULL DEFAULT 0",
+    "output_tokens INTEGER NOT NULL DEFAULT 0",
+    "work_seconds DOUBLE PRECISION NOT NULL DEFAULT 0",
+]
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
@@ -32,3 +40,6 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+        # create_all doesn't add columns to existing tables; these came after the runs table
+        for column in RUN_USAGE_COLUMNS:
+            await conn.execute(text(f"ALTER TABLE runs ADD COLUMN IF NOT EXISTS {column}"))
