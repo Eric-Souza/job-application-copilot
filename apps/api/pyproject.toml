@@ -13,9 +13,11 @@ dependencies = [
   "langgraph-checkpoint-postgres",
   "langchain-core",
   "langchain-google-genai",
+  "langchain-text-splitters",
   "psycopg[binary]",
   "pgvector",
-  "sqlalchemy>=2",
+  "sqlalchemy[asyncio]>=2",
+  "pypdf",
   "langfuse",
 ]
 
@@ -28,3 +30,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
