@@ -33,6 +33,9 @@ class Settings(BaseSettings):
 
     resume_dir: str = str(REPO_ROOT / "data" / "resume")
 
+    # Origins allowed to call the API from a browser (the Vite dev server by default)
+    cors_origins: list[str] = ["http://localhost:5173"]
+
     @property
     def gemini_configured(self) -> bool:
         return bool(self.gemini_api_key.strip())

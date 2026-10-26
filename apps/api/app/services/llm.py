@@ -1,6 +1,11 @@
 from functools import lru_cache
 
-from langchain_core.exceptions import ModelAPIError
+from langchain_core.exceptions import (
+    ModelAPIError,
+    ModelConnectionError,
+    ModelRateLimitError,
+    ModelTimeoutError,
+)
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 from app.config import get_settings
@@ -12,6 +17,10 @@ def _require_key() -> str:
         raise RuntimeError("GEMINI_API_KEY is not set. Add it to .env at the repo root.")
     return settings.gemini_api_key
 
+
+# Errors another model might not hit: overload, its own quota, timeouts. Auth and bad-request
+# errors would fail on the fallback too, so they surface instead.
+FALLBACK_ON = (ModelAPIError, ModelRateLimitError, ModelTimeoutError, ModelConnectionError)
 
 _TRANSIENT = ("429", "500", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DEADLINE_EXCEEDED")
 
@@ -47,7 +56,7 @@ class ChatWithFallback:
         if self.fallback is None:
             return runnable
         return runnable.with_fallbacks(
-            [self.fallback.with_structured_output(schema)], exceptions_to_handle=(ModelAPIError,)
+            [self.fallback.with_structured_output(schema)], exceptions_to_handle=FALLBACK_ON
         )
 
 

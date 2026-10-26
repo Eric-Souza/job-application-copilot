@@ -32,6 +32,22 @@ class Source(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 
+class Run(Base):
+    """One tailoring run. The graph state lives in LangGraph's checkpoint tables under the same id;
+    this row is what lists and status checks read."""
+
+    __tablename__ = "runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # running | awaiting_review | done | failed
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")  # set once the posting is parsed
+    company: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
 class ExperienceChunk(Base):
     """One piece of evidence (usually a single resume bullet) plus where it came from."""
 

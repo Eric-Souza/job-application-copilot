@@ -10,6 +10,8 @@ from contextlib import asynccontextmanager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 from sqlalchemy.engine import make_url
 
@@ -33,9 +35,17 @@ def psycopg_url(database_url: str) -> str:
 
 
 @asynccontextmanager
-async def postgres_checkpointer(database_url: str | None = None) -> AsyncIterator[AsyncPostgresSaver]:
-    """Checkpoints in the app's Postgres database. Creates LangGraph's tables on first use."""
+async def postgres_checkpointer(
+    database_url: str | None = None, max_connections: int = 5
+) -> AsyncIterator[AsyncPostgresSaver]:
+    """Checkpoints in the app's Postgres database. Creates LangGraph's tables on first use.
+
+    Uses a pool, so the API can serve several runs at once; the CLI just uses one connection.
+    """
     url = psycopg_url(database_url or get_settings().database_url)
-    async with AsyncPostgresSaver.from_conn_string(url, serde=serializer()) as saver:
+    # The settings AsyncPostgresSaver.from_conn_string uses for its single connection
+    kwargs = {"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row}
+    async with AsyncConnectionPool(url, min_size=1, max_size=max_connections, kwargs=kwargs) as pool:
+        saver = AsyncPostgresSaver(conn=pool, serde=serializer())
         await saver.setup()
         yield saver

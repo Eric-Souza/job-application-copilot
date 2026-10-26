@@ -14,7 +14,7 @@ dependencies = [
   "langchain-core",
   "langchain-google-genai",
   "langchain-text-splitters",
-  "psycopg[binary]",
+  "psycopg[binary,pool]",
   "pgvector",
   "sqlalchemy[asyncio]>=2",
   "pypdf",

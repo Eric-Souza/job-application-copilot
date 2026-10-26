@@ -2,7 +2,7 @@
 
 A LangGraph agent that tailors your resume to a job posting. Paste a posting, and the agent extracts the requirements, matches them against your experience with RAG, and drafts tailored resume bullets. You review the drafts before anything is finalized. Every run is saved in Postgres, so you can close the tab and resume later.
 
-> **Status:** milestones 1 to 3 work from the CLI: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), and human review with a Postgres checkpointer. The FastAPI endpoints and SSE streaming to the React UI are next.
+> **Status:** milestones 1 to 4 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, and a FastAPI API that streams each step over SSE. The React UI is next.
 
 ## How it works
 
@@ -32,7 +32,8 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 - [x] RAG over your experience: resume-aware chunking, Gemini embeddings, pgvector, hybrid search (vector + Postgres full-text, merged with Reciprocal Rank Fusion)
 - [x] Human-in-the-loop review with `interrupt` and resume: approve, revise with feedback, or edit
 - [x] Postgres checkpointer (`langgraph-checkpoint-postgres`), so runs survive restarts and can be resumed by thread ID
-- [ ] Token and step streaming to the React UI over SSE
+- [x] FastAPI endpoints to start runs, follow them, review drafts, and retry failed steps
+- [x] Step streaming over SSE (token streaming to the React UI is still to come)
 - [ ] Tool calling: the agent can fetch more context when a requirement has weak evidence
 - [ ] Langfuse tracing with per-run cost and latency
 - [ ] Optional: load experience through the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) instead of local files
@@ -67,10 +68,12 @@ job-application-copilot/
           nodes/            # parse_posting, retrieve_experience, match, draft, review, finalize
         routers/            # runs, review decisions, SSE stream, experience ingestion
         services/
+          runs.py           # runs the graph in the background, tracks status, publishes events
           chunking.py       # resume Markdown -> one chunk per bullet, tagged with its role
           ingest.py         # embed and index files, skip unchanged ones, prune removed ones
           retrieval/        # vector, keyword, and hybrid (RRF) search
           llm.py            # Gemini chat model (with a lite fallback) and embeddings
+        main.py             # FastAPI app: lifespan, CORS, routers
         cli.py              # python -m app.cli ingest | search | tailor | resume
         review_text.py      # the CLI's review screen and edit file
         schemas.py          # Pydantic models (requirements, matches, bullets)
@@ -158,7 +161,26 @@ Add `--yes` to approve the first draft without reviewing it.
 
 The output has a summary, bullets grouped by the role they came from, a requirement coverage table (strong, partial, missing, with the evidence ids), and the must-haves with no evidence. Any bullet that fails a grounding check carries a `Check:` line saying what to verify.
 
-The API and the React UI land in later milestones.
+### API
+
+Start the server from `apps/api` (`--loop` matters on Windows only: psycopg's async mode needs the selector event loop):
+
+```bash
+uvicorn app.main:app --loop app.db:LOOP_FACTORY --port 8000
+```
+
+| Endpoint | What it does |
+|---|---|
+| `POST /runs` | Start a run with `{"posting": "..."}`; returns its id right away (202) |
+| `GET /runs` | Recent runs with their status: `running`, `awaiting_review`, `done`, or `failed` |
+| `GET /runs/{id}` | A run's status, the draft under review, or the final resume |
+| `GET /runs/{id}/events` | SSE stream: `status`, then a `node` event per step, then `review`, `done`, or `error` |
+| `POST /runs/{id}/review` | `{"action": "approve"}`, `{"action": "revise", "feedback": "..."}`, or `{"action": "edit", "summary": "...", "bullets": [...]}` |
+| `POST /runs/{id}/retry` | Continue a failed run from the step that failed |
+| `POST /experience/ingest` | Index `data/resume/` |
+| `GET /experience/search?q=...` | Search your experience (`mode` = vector, keyword, or hybrid) |
+
+Interactive docs are at `http://localhost:8000/docs`. Runs that were in progress when the server stopped are marked failed on startup and can be retried. Runs started from the CLI don't show up in `GET /runs`. The React UI lands in the next milestone.
 
 ## Free to run
 
