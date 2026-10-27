@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     research_rounds: int = 2
 
     resume_dir: str = str(REPO_ROOT / "data" / "resume")
+    # Optional: index the resume from the profile MCP server instead of resume_dir. A command
+    # that starts it over stdio ("node ../profile-mcp-server/dist/index.js") or an http(s) URL
+    profile_mcp: str = ""
 
     # Origins allowed to call the API from a browser (the Vite dev server by default)
     cors_origins: list[str] = ["http://localhost:5173"]
