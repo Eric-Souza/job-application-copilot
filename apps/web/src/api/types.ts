@@ -65,6 +65,13 @@ export interface Evidence {
   content: string
 }
 
+/** A search the agent ran again, in its own words, for a weakly covered requirement */
+export interface Search {
+  requirement_id: string
+  query: string
+  found: string[] // evidence ids new to this requirement
+}
+
 /** What the graph shows while paused on a draft */
 export interface ReviewRequest {
   revision: number
@@ -74,6 +81,7 @@ export interface ReviewRequest {
   coverage: Match[]
   requirements?: Requirement[] // missing on runs paused before the UI existed
   evidence?: Evidence[]
+  searches?: Search[] // missing on runs paused before the research step existed
   error?: string // why the last decision was rejected
 }
 

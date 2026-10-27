@@ -2,7 +2,7 @@
 
 A LangGraph agent that tailors your resume to a job posting. Paste a posting, and the agent extracts the requirements, matches them against your experience with RAG, and drafts tailored resume bullets. You review the drafts before anything is finalized. Every run is saved in Postgres, so you can close the tab and resume later.
 
-> **Status:** milestones 1 to 5 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, a FastAPI API that streams each step over SSE, a React UI to run and review it all, and per-run usage with optional Langfuse tracing. Tool calling is next.
+> **Status:** milestones 1 to 6 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, a FastAPI API that streams each step over SSE, a React UI to run and review it all, per-run usage with optional Langfuse tracing, and a tool-calling step that searches again for weakly covered requirements.
 
 ## How it works
 
@@ -10,19 +10,18 @@ A LangGraph agent that tailors your resume to a job posting. Paste a posting, an
 job posting
   │
   ▼
-parse_posting ──► retrieve_experience ──► match_requirements ──► draft_bullets ──► human_review ──► finalize
-(structured        (pgvector RAG over      (coverage + gaps       (tailored            (interrupt:       (tailored resume
- requirements)      your resume/projects)   per requirement)       bullets + sources)   approve / edit /   section + summary)
-                                                                        ▲               request changes)
-                                                                        └──── revise ◄─────────┘
+parse_posting ──► retrieve_experience ──► match_requirements ──► research_gaps ──► draft_bullets ──► human_review ──► finalize
+                                                   ▲                   │                 ▲                 │
+                                                   └── new evidence ───┘                 └──── revise ─────┘
 ```
 
 1. **parse_posting:** an LLM call with structured output (Pydantic) turns the posting into must-have and nice-to-have requirements, seniority, and stack.
 2. **retrieve_experience:** for each requirement, hybrid search over your resume, project write-ups, and articles stored in pgvector.
 3. **match_requirements:** scores coverage per requirement and lists gaps, with the evidence it found.
-4. **draft_bullets:** writes tailored bullets that cite which experience each one came from. It only uses retrieved evidence, so it doesn't invent experience.
-5. **human_review:** the graph pauses with a LangGraph `interrupt`. You approve, edit, or ask for a revision. A revision loops back to drafting with your feedback and the previous draft. Edits go through the same grounding checks as the model's bullets and come back for review, so you see any new flags before approving.
-6. **finalize:** produces the tailored resume section and a short summary you can paste into an application.
+4. **research_gaps:** the first search used each requirement's own words, and resumes often say the same thing differently. For requirements that aren't strongly covered, the model gets a `search_experience` tool and up to two turns to search again in its own words ("container orchestration" for "Kubernetes", the industry in a job title). New hits join the evidence pool and match_requirements judges again; if nothing new turns up, the run goes straight to drafting. The model only finds evidence here, it never decides coverage.
+5. **draft_bullets:** writes tailored bullets that cite which experience each one came from. It only uses retrieved evidence, so it doesn't invent experience.
+6. **human_review:** the graph pauses with a LangGraph `interrupt`. You approve, edit, or ask for a revision. A revision loops back to drafting with your feedback and the previous draft. Edits go through the same grounding checks as the model's bullets and come back for review, so you see any new flags before approving.
+7. **finalize:** produces the tailored resume section and a short summary you can paste into an application.
 
 ## Features
 
@@ -35,7 +34,7 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 - [x] FastAPI endpoints to start runs, follow them, review drafts, and retry failed steps
 - [x] Step streaming over SSE (token streaming is still to come)
 - [x] React UI: paste a posting, watch each step finish, then approve, ask for changes, or edit the draft, and copy or download the result
-- [ ] Tool calling: the agent can fetch more context when a requirement has weak evidence
+- [x] Tool calling: for weakly covered requirements, the model searches your experience again in its own words, in a bounded loop, and the new evidence is judged again
 - [x] Per-run usage (model calls, tokens, time) and Langfuse tracing of every step and prompt
 - [ ] Optional: load experience through the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) instead of local files
 
@@ -66,7 +65,7 @@ job-application-copilot/
           prompts.py        # system and user prompts per node
           grounding.py      # deterministic checks on drafted and edited bullets
           checkpointer.py   # Postgres checkpointer and the serializer allowlist for state models
-          nodes/            # parse_posting, retrieve_experience, match, draft, review, finalize
+          nodes/            # parse_posting, retrieve_experience, match, research_gaps, draft, review, finalize
         routers/            # runs, review decisions, SSE stream, experience ingestion
         services/
           runs.py           # runs the graph in the background, tracks status, publishes events

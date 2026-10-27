@@ -18,7 +18,9 @@ def answers(monkeypatch, *replies: str):
 
 async def test_quit_then_resume_and_approve(monkeypatch, capsys):
     llm = FakeLLM({PostingAnalysis: ANALYSIS, MatchReport: good_matches, DraftSpec: DRAFT})
-    graph = build_graph(Deps(llm=llm, search=fixed_search(HITS)), checkpointer=memory_saver())
+    graph = build_graph(
+        Deps(llm=llm, search=fixed_search(HITS), research_rounds=0), checkpointer=memory_saver()
+    )
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
     answers(monkeypatch, "q")
@@ -34,7 +36,9 @@ async def test_quit_then_resume_and_approve(monkeypatch, capsys):
 
 async def test_revise_asks_for_feedback(monkeypatch):
     llm = FakeLLM({PostingAnalysis: ANALYSIS, MatchReport: good_matches, DraftSpec: DRAFT})
-    graph = build_graph(Deps(llm=llm, search=fixed_search(HITS)), checkpointer=memory_saver())
+    graph = build_graph(
+        Deps(llm=llm, search=fixed_search(HITS), research_rounds=0), checkpointer=memory_saver()
+    )
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
     answers(monkeypatch, "r", "", "r", "Shorter, please.", "a")  # empty feedback is ignored
@@ -46,7 +50,9 @@ async def test_revise_asks_for_feedback(monkeypatch):
 
 async def test_auto_approve_never_prompts(monkeypatch):
     llm = FakeLLM({PostingAnalysis: ANALYSIS, MatchReport: good_matches, DraftSpec: DRAFT})
-    graph = build_graph(Deps(llm=llm, search=fixed_search(HITS)), checkpointer=memory_saver())
+    graph = build_graph(
+        Deps(llm=llm, search=fixed_search(HITS), research_rounds=0), checkpointer=memory_saver()
+    )
     answers(monkeypatch)  # any prompt would fail on an empty queue
 
     state = await cli._drive(graph, {"configurable": {"thread_id": "yes"}}, {"posting": "..."}, True)

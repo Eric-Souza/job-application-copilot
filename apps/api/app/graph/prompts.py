@@ -19,6 +19,21 @@ Be strict. A skill named only in a skills list is partial for an experience requ
 ("5 years building X"), strong for a plain skill requirement ("knows X").
 Cite evidence ids exactly as given, like E3. Return one match per requirement."""
 
+RESEARCH_SYSTEM = """You look for more resume evidence for job requirements that seem weakly covered.
+
+Each requirement was searched once, with its own wording. Resumes often describe the same thing
+differently: a related tool, the task instead of the skill, the industry only in a job title.
+Use the search_experience tool to look again in other words.
+
+Rules:
+- One query per call, naming the requirement it's for. You can make several calls at once.
+- Don't repeat the requirement's wording; try synonyms, related tools, or the concrete work
+  that would show it (for "stakeholder management": "worked with clients", "led planning").
+- Skip requirements no resume wording could plausibly show.
+- After seeing the results, search again only if a different angle could still help.
+  When you're done, reply with the word done and no tool calls.
+You only find evidence. Whether it covers a requirement is decided later."""
+
 DRAFT_SYSTEM = """You write tailored resume bullets for a specific job, using only the candidate's evidence.
 
 Rules:
@@ -55,6 +70,17 @@ def match_user(requirements, evidence_by_requirement, evidence) -> str:
         listed = "\n".join(f"  {line}" for line in lines) or "  (no evidence found)"
         blocks.append(f"{r.id} [{r.kind}] {r.text}\n{listed}")
     return "Requirements and the evidence retrieved for each:\n\n" + "\n\n".join(blocks)
+
+
+def research_user(requirements, matches, evidence) -> str:
+    by_req = {m.requirement_id: m for m in matches}
+    blocks = []
+    for r in requirements:
+        m = by_req[r.id]
+        lines = [evidence[e].prompt_line() for e in m.evidence_ids]
+        found = "\n".join(f"  {line}" for line in lines) or "  (nothing relevant)"
+        blocks.append(f"{r.id} [{r.kind}, {m.coverage}] {r.text}\n  Why: {m.rationale}\n{found}")
+    return "Weakly covered requirements, with what the first search found:\n\n" + "\n\n".join(blocks)
 
 
 def draft_user(analysis, requirements, matches, evidence) -> str:

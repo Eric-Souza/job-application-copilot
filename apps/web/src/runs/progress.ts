@@ -4,12 +4,13 @@ export const STEPS = [
   { node: 'parse_posting', label: 'Read the posting' },
   { node: 'retrieve_experience', label: 'Find your evidence' },
   { node: 'match_requirements', label: 'Match requirements' },
+  { node: 'research_gaps', label: 'Search again for gaps' },
   { node: 'draft_bullets', label: 'Draft bullets' },
   { node: 'human_review', label: 'Your review' },
   { node: 'finalize', label: 'Finalize' },
 ] as const
 
-export type StepState = 'done' | 'active' | 'waiting' | 'failed' | 'pending'
+export type StepState = 'done' | 'active' | 'waiting' | 'failed' | 'pending' | 'skipped'
 
 interface Finished {
   detail: string
@@ -69,7 +70,7 @@ export interface StepRow {
 }
 
 export function stepRows(run: RunView, progress: Progress): StepRow[] {
-  return STEPS.map(({ node, label }) => {
+  const rows = STEPS.map(({ node, label }): StepRow => {
     const finished = progress.finished[node]
     let state: StepState = 'pending'
     if (progress.active === node && run.status === 'running') state = 'active'
@@ -78,4 +79,7 @@ export function stepRows(run: RunView, progress: Progress): StepRow[] {
     else if (finished || (node === 'human_review' && run.status === 'done')) state = 'done'
     return { node, label, state, detail: finished?.detail ?? '', seconds: finished?.seconds }
   })
+  // A step the run went past without running it (no gaps to research, nothing to draft)
+  const reached = rows.findLastIndex((r) => r.state !== 'pending')
+  return rows.map((r, i) => (i < reached && r.state === 'pending' ? { ...r, state: 'skipped' } : r))
 }

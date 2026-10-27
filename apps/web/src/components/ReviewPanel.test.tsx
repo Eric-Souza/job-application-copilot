@@ -20,6 +20,7 @@ describe('ReviewPanel', () => {
     const table = screen.getByRole('table', { name: 'Requirement coverage' })
     expect(table).toHaveTextContent('Kubernetes (nice to have)')
     expect(table).toHaveTextContent('Nothing on Kubernetes.')
+    expect(table).toHaveTextContent('Also searched for: “container orchestration”')
   })
 
   it('approves', async () => {

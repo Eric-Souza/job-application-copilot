@@ -12,6 +12,9 @@ class _Model:
     def with_structured_output(self, schema):
         return RunnableLambda(self.fn)
 
+    def bind_tools(self, tools):
+        return RunnableLambda(self.fn)
+
 
 def _overloaded(_):
     raise GoogleAPIError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "high demand"}})
@@ -40,6 +43,12 @@ async def test_other_errors_are_not_hidden_by_the_fallback():
 
     with pytest.raises(KeyError):
         await llm.with_structured_output(dict).ainvoke("hi")
+
+
+async def test_tool_calls_fall_back_too():
+    llm = ChatWithFallback(_Model(_overloaded), _Model(lambda _: "from fallback"))
+
+    assert await llm.bind_tools([]).ainvoke("hi") == "from fallback"
 
 
 async def test_no_fallback_configured():

@@ -28,7 +28,9 @@ POSTING = "Senior Backend Engineer at Northwind. " * 3
 async def api(llm: FakeLLM | None = None, search=None):
     """The app with its lifespan running, plus a client and the run manager."""
     llm = llm or FakeLLM({PostingAnalysis: ANALYSIS, MatchReport: good_matches, DraftSpec: DRAFT})
-    app = create_app(Deps(llm=llm, search=search or fixed_search(HITS)), checkpointer=memory_saver())
+    app = create_app(
+        Deps(llm=llm, search=search or fixed_search(HITS), research_rounds=0), checkpointer=memory_saver()
+    )
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

@@ -85,6 +85,28 @@ class MatchReport(BaseModel):
     matches: list[Match]
 
 
+# --- research_gaps -------------------------------------------------------------------------
+
+
+class SearchExperience(BaseModel):
+    """Search the candidate's resume, project write-ups, and articles for evidence of a requirement.
+
+    Use different wording than the requirement itself: synonyms, related tools, or the kind of
+    work that would show it. Returns the matching resume bullets with their evidence ids.
+    """
+
+    requirement_id: str = Field(description="The requirement this search is for, like R3")
+    query: str = Field(description="What to look for, in words a resume might use")
+
+
+class Search(BaseModel):
+    """One search the agent ran while looking for more evidence, kept to show what it tried."""
+
+    requirement_id: str
+    query: str
+    found: list[str] = Field(default_factory=list)  # evidence ids new to this requirement
+
+
 # --- draft_bullets -------------------------------------------------------------------------
 
 

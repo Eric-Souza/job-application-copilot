@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     retrieval_mode: str = "hybrid"
     retrieval_candidates: int = 20
     rrf_k: int = 60
+    # Model turns the agent may spend searching again for weakly covered requirements; 0 turns it off
+    research_rounds: int = 2
 
     resume_dir: str = str(REPO_ROOT / "data" / "resume")
 

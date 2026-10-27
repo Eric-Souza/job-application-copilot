@@ -23,7 +23,10 @@ def drafts(*specs: DraftSpec):
 
 
 def start(llm: FakeLLM, checkpointer=None):
-    graph = build_graph(Deps(llm=llm, search=fixed_search(HITS)), checkpointer=checkpointer or memory_saver())
+    graph = build_graph(
+        Deps(llm=llm, search=fixed_search(HITS), research_rounds=0),
+        checkpointer=checkpointer or memory_saver(),
+    )
     return graph, {"configurable": {"thread_id": str(uuid.uuid4())}}
 
 

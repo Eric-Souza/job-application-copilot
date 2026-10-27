@@ -13,7 +13,7 @@ describe('step progress', () => {
     const run = pausedView()
     const rows = stepRows(run, apply({ type: 'load', run }))
 
-    expect(states(rows)).toEqual(['done', 'done', 'done', 'done', 'waiting', 'pending'])
+    expect(states(rows)).toEqual(['done', 'done', 'done', 'done', 'done', 'waiting', 'pending'])
     expect(rows[0].detail).toBe('3 requirements')
   })
 
@@ -27,7 +27,7 @@ describe('step progress', () => {
     )
     const rows = stepRows(run, progress)
 
-    expect(states(rows)).toEqual(['done', 'active', 'pending', 'pending', 'pending', 'pending'])
+    expect(states(rows)).toEqual(['done', 'active', 'pending', 'pending', 'pending', 'pending', 'pending'])
     expect(rows[0]).toMatchObject({ detail: '3 requirements', seconds: 2.5 })
   })
 
@@ -35,7 +35,7 @@ describe('step progress', () => {
     const run = pausedView({ status: 'running', review: null })
     const progress = apply({ type: 'load', run }, { type: 'start', node: 'draft_bullets', elapsed: 0 })
 
-    expect(stepRows(run, progress)[3].state).toBe('active')
+    expect(stepRows(run, progress)[4].state).toBe('active')
   })
 
   it('marks the step a failed run stopped at', () => {
@@ -52,7 +52,17 @@ describe('step progress', () => {
       'pending',
       'pending',
       'pending',
+      'pending',
     ])
+  })
+
+  it('marks steps the run went past as skipped', () => {
+    // Every requirement was strong, so there was nothing to search again for
+    const steps = pausedView().steps.filter((s) => s.node !== 'research_gaps')
+    const run = pausedView({ steps })
+    const rows = stepRows(run, apply({ type: 'load', run }))
+
+    expect(states(rows)).toEqual(['done', 'done', 'done', 'skipped', 'done', 'waiting', 'pending'])
   })
 
   it('does not time a step against an earlier segment', () => {
