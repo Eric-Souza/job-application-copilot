@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { api, followRun } from '../api/client'
-import type { RunView } from '../api/types'
+import type { DraftPreview, RunView } from '../api/types'
 import { noProgress, progressReducer } from './progress'
 
 /**
@@ -11,6 +11,8 @@ export function useRun(runId: string, onChange?: () => void) {
   const [run, setRun] = useState<RunView | null>(null)
   const [progress, dispatch] = useReducer(progressReducer, noProgress)
   const [error, setError] = useState<string | null>(null)
+  // The draft being written, tagged with the stream it came from so an old segment's draft isn't shown
+  const [live, setLive] = useState<{ stream: string; draft: DraftPreview } | null>(null)
   const [busy, setBusy] = useState(false) // sending an action
   const [segment, setSegment] = useState(0) // bumped to follow the run again after an action
   const changed = useRef(onChange)
@@ -33,9 +35,11 @@ export function useRun(runId: string, onChange?: () => void) {
         (e: Error) => setError(e.message),
       )
     dispatch({ type: 'follow' })
+    const stream = `${runId}:${segment}`
     return followRun(runId, {
       status: show,
       step: (event) => dispatch({ type: 'start', ...event }),
+      draft: (draft) => setLive({ stream, draft }),
       node: (event) => {
         dispatch({ type: 'finish', ...event })
         if (event.node === 'parse_posting') reload() // the run has a title now
@@ -64,5 +68,6 @@ export function useRun(runId: string, onChange?: () => void) {
     [show],
   )
 
-  return { run, progress, error, busy, act }
+  const draft = live?.stream === `${runId}:${segment}` ? live.draft : null
+  return { run, progress, draft, error, busy, act }
 }

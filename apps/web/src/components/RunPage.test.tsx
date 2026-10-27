@@ -50,6 +50,13 @@ describe('RunPage', () => {
     expect(step('Find your evidence')).toHaveAttribute('data-state', 'active')
     expect(onChange).toHaveBeenCalled()
 
+    // The draft shows up as it's written, then the review replaces it
+    act(() => source.emit('draft', { revision: 1, summary: 'Backend engineer', bullets: [] }))
+    expect(screen.getByText('Writing draft 1…')).toBeInTheDocument()
+    expect(screen.getByText('Backend engineer')).toBeInTheDocument()
+    act(() => source.emit('draft', { revision: 1, summary: 'Backend engineer who', bullets: ['Built a'] }))
+    expect(screen.getByText('Built a')).toBeInTheDocument()
+
     view = pausedView()
     act(() => source.emit('review', REVIEW))
     expect(await screen.findByText('Draft 1')).toBeInTheDocument()

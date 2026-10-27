@@ -197,6 +197,17 @@ async def test_events_stream_steps_then_the_review():
             ("match_requirements", "1 strong, 1 partial, 1 missing"),
             ("draft_bullets", "draft 1: 2 bullets"),
         ]
+        # The draft streams in while its step runs: text only, since ids may not be there yet
+        names = [name for name, _ in events]
+        drafts = [data for name, data in events if name == "draft"]
+        half = DRAFT.summary[: len(DRAFT.summary) // 2]
+        assert drafts == [
+            {"revision": 1, "summary": half, "bullets": []},
+            {"revision": 1, "summary": DRAFT.summary, "bullets": [b.text for b in DRAFT.bullets]},
+        ]
+        drafting = [i for i, (name, data) in enumerate(events) if data.get("node") == "draft_bullets"]
+        assert [names[i] for i in drafting] == ["step", "node"]
+        assert all(drafting[0] < i < drafting[1] for i, n in enumerate(names) if n == "draft")
         started = [data["node"] for name, data in events if name == "step"]
         # The steps after the gate started once the stream was subscribed; earlier ones may have too
         assert started[-3:] == ["match_requirements", "draft_bullets", "human_review"]

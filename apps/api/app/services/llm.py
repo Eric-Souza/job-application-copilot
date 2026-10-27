@@ -76,8 +76,8 @@ class ChatWithFallback:
         self.primary, self.fallback, self.clock = primary, fallback, clock
         self.primary_resumes_at = 0.0  # clock time; the main model is skipped until then
 
-    def with_structured_output(self, schema):
-        return self._wrap(lambda model: model.with_structured_output(schema))
+    def with_structured_output(self, schema, **kwargs):
+        return self._wrap(lambda model: model.with_structured_output(schema, **kwargs))
 
     def bind_tools(self, tools):
         return self._wrap(lambda model: model.bind_tools(tools))

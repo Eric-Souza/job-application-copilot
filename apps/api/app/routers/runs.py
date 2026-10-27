@@ -67,7 +67,8 @@ async def retry_run(run_id: str, request: Request) -> RunView:
 @router.get("/{run_id}/events")
 async def run_events(run_id: str, request: Request) -> EventSourceResponse:
     """Server-sent events: `status` (the run as it is now), then `step` as each step starts and
-    `node` as it finishes, and one of `review`, `done`, or `error` when the run pauses or stops.
+    `node` as it finishes, `draft` with the text so far while the draft is being written, and
+    one of `review`, `done`, or `error` when the run pauses or stops.
     The stream closes then; open it again after sending a review decision or a retry."""
     runs = manager(request)
     await _found(runs, run_id)

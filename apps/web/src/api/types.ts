@@ -110,3 +110,10 @@ export interface StepStarted {
 export interface StepFinished extends StepStarted {
   detail: string
 }
+
+/** The draft as it's being written: text only, since a partial bullet may not have its ids yet */
+export interface DraftPreview {
+  revision: number
+  summary: string
+  bullets: string[]
+}
