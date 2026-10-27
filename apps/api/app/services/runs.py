@@ -274,7 +274,11 @@ class RunManager:
             }
 
         try:
-            async for mode, chunk in self.graph.astream(payload, config, stream_mode=["tasks", "updates"]):
+            modes = ["tasks", "updates", "custom"]
+            async for mode, chunk in self.graph.astream(payload, config, stream_mode=modes):
+                if mode == "custom":  # the draft so far, while draft_bullets streams it
+                    self._publish(run_id, {"event": "draft", "data": chunk["draft"]})
+                    continue
                 if mode == "tasks":
                     if "input" in chunk:  # a step starting (the finish event carries its result instead)
                         data = {"node": chunk["name"], "elapsed": round(time.perf_counter() - started, 1)}

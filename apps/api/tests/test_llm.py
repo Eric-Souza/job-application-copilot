@@ -8,8 +8,10 @@ from app.services.llm import ChatWithFallback, daily_quota_reset
 class _Model:
     def __init__(self, fn):
         self.fn = fn
+        self.options: list[dict] = []
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, method=None):
+        self.options.append({"method": method})
         return RunnableLambda(self.fn)
 
     def bind_tools(self, tools):
@@ -43,6 +45,14 @@ async def test_other_errors_are_not_hidden_by_the_fallback():
 
     with pytest.raises(KeyError):
         await llm.with_structured_output(dict).ainvoke("hi")
+
+
+async def test_structured_output_options_reach_both_models():
+    main, fallback = _Model(_overloaded), _Model(lambda _: "from fallback")
+    llm = ChatWithFallback(main, fallback)
+
+    assert await llm.with_structured_output({}, method="json_schema").ainvoke("hi") == "from fallback"
+    assert main.options == fallback.options == [{"method": "json_schema"}]
 
 
 async def test_tool_calls_fall_back_too():

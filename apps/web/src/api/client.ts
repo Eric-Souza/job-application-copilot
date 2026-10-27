@@ -1,4 +1,5 @@
 import type {
+  DraftPreview,
   ReviewDecision,
   ReviewRequest,
   RunSummary,
@@ -62,6 +63,7 @@ export interface RunEventHandlers {
   status?: (run: RunView) => void
   step?: (event: StepStarted) => void
   node?: (event: StepFinished) => void
+  draft?: (draft: DraftPreview) => void
   review?: (review: ReviewRequest) => void
   done?: (result: TailoredResume) => void
   error?: (error: { message: string }) => void
@@ -90,6 +92,7 @@ export function followRun(runId: string, handlers: RunEventHandlers): () => void
   on<RunView>('status', (run) => run.status !== 'running')
   on<StepStarted>('step', () => false)
   on<StepFinished>('node', () => false)
+  on<DraftPreview>('draft', () => false)
   on<ReviewRequest>('review', () => true)
   on<TailoredResume>('done', () => true)
   on<{ message: string }>('error', () => true)

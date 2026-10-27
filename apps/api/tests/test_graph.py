@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import REPO_ROOT
 from app.graph.builder import build_graph
+from app.graph.nodes.draft_bullets import preview
 from app.graph.state import Deps
 from app.schemas import BulletSpec, DraftSpec, Match, MatchReport, PostingAnalysis, RequirementSpec
 from app.services import ingest
@@ -249,3 +250,10 @@ def test_only_transient_errors_count():
 
     assert is_transient(RuntimeError("429 RESOURCE_EXHAUSTED"))
     assert not is_transient(ValueError("Invalid JSON in structured output"))
+
+
+def test_draft_preview_sends_only_the_text_written_so_far():
+    partial = {"summary": "Backend engineer", "bullets": [{"text": "Designed a Go"}, {"requirement_ids": []}]}
+
+    assert preview(partial, 2) == {"revision": 2, "summary": "Backend engineer", "bullets": ["Designed a Go"]}
+    assert preview({}, 1) == {"revision": 1, "summary": "", "bullets": []}

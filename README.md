@@ -2,7 +2,7 @@
 
 A LangGraph agent that tailors your resume to a job posting. Paste a posting, and the agent extracts the requirements, matches them against your experience with RAG, and drafts tailored resume bullets. You review the drafts before anything is finalized. Every run is saved in Postgres, so you can close the tab and resume later.
 
-> **Status:** milestones 1 to 6 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, a FastAPI API that streams each step over SSE, a React UI to run and review it all, per-run usage with optional Langfuse tracing, and a tool-calling step that searches again for weakly covered requirements.
+> **Status:** milestones 1 to 6 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, a FastAPI API that streams each step and the draft as it's written over SSE, a React UI to run and review it all, per-run usage with optional Langfuse tracing, and a tool-calling step that searches again for weakly covered requirements.
 
 ## How it works
 
@@ -32,7 +32,7 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 - [x] Human-in-the-loop review with `interrupt` and resume: approve, revise with feedback, or edit
 - [x] Postgres checkpointer (`langgraph-checkpoint-postgres`), so runs survive restarts and can be resumed by thread ID
 - [x] FastAPI endpoints to start runs, follow them, review drafts, and retry failed steps
-- [x] Step streaming over SSE (token streaming is still to come)
+- [x] Streaming over SSE: each step as it starts and finishes, and the draft as the model writes it (partial structured output, parsed as the tokens arrive)
 - [x] React UI: paste a posting, watch each step finish, then approve, ask for changes, or edit the draft, and copy or download the result
 - [x] Tool calling: for weakly covered requirements, the model searches your experience again in its own words, in a bounded loop, and the new evidence is judged again
 - [x] Per-run usage (model calls, tokens, time) and Langfuse tracing of every step and prompt
@@ -179,7 +179,7 @@ uvicorn app.main:app --loop app.db:LOOP_FACTORY --port 8000
 | `POST /runs` | Start a run with `{"posting": "..."}`; returns its id right away (202) |
 | `GET /runs` | Recent runs with their status: `running`, `awaiting_review`, `done`, or `failed` |
 | `GET /runs/{id}` | A run's status, the draft under review or the final resume, its usage, and its Langfuse link |
-| `GET /runs/{id}/events` | SSE stream: `status`, then `step` and `node` as each step starts and finishes, then `review`, `done`, or `error` |
+| `GET /runs/{id}/events` | SSE stream: `status`, then `step` and `node` as each step starts and finishes, `draft` with the text so far while the draft is written, then `review`, `done`, or `error` |
 | `POST /runs/{id}/review` | `{"action": "approve"}`, `{"action": "revise", "feedback": "..."}`, or `{"action": "edit", "summary": "...", "bullets": [...]}` |
 | `POST /runs/{id}/retry` | Continue a failed run from the step that failed |
 | `POST /experience/ingest` | Index `data/resume/` |
@@ -197,7 +197,9 @@ npm run dev                  # http://localhost:5173, proxies /api to localhost:
 npm test                     # Vitest, no API needed
 ```
 
-Paste a posting and press Start. Steps tick off as they finish, then the draft shows up for review: bullets grouped by role, with their requirement and evidence ids (hover for what they refer to), any grounding flags, and a coverage table with the model's reasoning for each requirement. Approve it, ask for changes in plain words, or edit the text yourself. A failed run (a Gemini quota error, say) has a Retry button that continues from the failing step. Runs are listed on the left, and a run's page can be reloaded or bookmarked at any point.
+Paste a posting and press Start. Steps tick off as they finish, and the draft appears as the model writes it. Once it's complete and checked, it shows up for review: bullets grouped by role, with their requirement and evidence ids (hover for what they refer to), any grounding flags, and a coverage table with the model's reasoning for each requirement and anything it searched for again. Approve it, ask for changes in plain words, or edit the text yourself. A failed run (a Gemini quota error, say) has a Retry button that continues from the failing step. Runs are listed on the left, and a run's page can be reloaded or bookmarked at any point.
+
+![The draft streaming in while the agent writes it](docs/live-draft.png)
 
 ### Tracing
 

@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any, ClassVar
 
 from langchain_core.callbacks.manager import AsyncCallbackManager
@@ -25,7 +25,10 @@ class FakeLLM:
         self.responses = responses
         self.calls: list[tuple[str, list]] = []
 
-    def with_structured_output(self, schema: type) -> "_Structured":
+    def with_structured_output(self, schema: type | dict, **kwargs: Any) -> "_Structured":
+        if isinstance(schema, dict):  # a JSON schema: answers with the response's dict, like Gemini
+            model = next(k for k in self.responses if getattr(k, "__name__", "") == schema["title"])
+            return _Structured(self, model, schema["title"], as_dict=True)
         return _Structured(self, schema, schema.__name__)
 
     def bind_tools(self, tools: list) -> "_Structured":
@@ -35,8 +38,8 @@ class FakeLLM:
 
 
 class _Structured:
-    def __init__(self, llm: FakeLLM, key: Any, name: str):
-        self.llm, self.key, self.name = llm, key, name
+    def __init__(self, llm: FakeLLM, key: Any, name: str, as_dict: bool = False):
+        self.llm, self.key, self.name, self.as_dict = llm, key, name, as_dict
 
     async def ainvoke(self, messages: list) -> Any:
         self.llm.calls.append((self.name, list(messages)))
@@ -49,7 +52,15 @@ class _Structured:
             result = response(messages) if callable(response) else response
         message = AIMessage(content="", usage_metadata=FakeLLM.USAGE)
         await run.on_llm_end(LLMResult(generations=[[ChatGeneration(message=message)]]))
-        return result
+        return result.model_dump() if self.as_dict else result
+
+    async def astream(self, messages: list) -> AsyncIterator[Any]:
+        """The response in two chunks, like a stream: half of its first field, then all of it."""
+        result = await self.ainvoke(messages)
+        if isinstance(result, dict) and result:
+            key, value = next(iter(result.items()))
+            yield {key: value[: len(value) // 2] if isinstance(value, str) else value}
+        yield result
 
 
 def evidence(chunk_id: str, content: str, context: str = "Engineer · Acme | 2022 – 2024") -> Evidence:

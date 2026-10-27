@@ -7,7 +7,7 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { api } from '../api/client'
-import type { RunView } from '../api/types'
+import type { DraftPreview, RunView } from '../api/types'
 import { usageLine } from '../format'
 import { stepRows } from '../runs/progress'
 import { useRun } from '../runs/useRun'
@@ -17,7 +17,7 @@ import { StatusChip } from './StatusChip'
 import { StepProgress } from './StepProgress'
 
 export function RunPage({ runId, onChange }: { runId: string; onChange?: () => void }) {
-  const { run, progress, error, busy, act } = useRun(runId, onChange)
+  const { run, progress, draft, error, busy, act } = useRun(runId, onChange)
 
   if (!run) {
     return error ? <Alert severity="error">{error}</Alert> : <LinearProgress />
@@ -38,7 +38,7 @@ export function RunPage({ runId, onChange }: { runId: string; onChange?: () => v
         <Paper sx={{ py: 1 }}>
           <StepProgress rows={stepRows(run, progress)} />
         </Paper>
-        <Main run={run} busy={busy} act={act} />
+        <Main run={run} draft={draft} busy={busy} act={act} />
       </Box>
     </Stack>
   )
@@ -72,11 +72,12 @@ function Header({ run }: { run: RunView }) {
 
 interface MainProps {
   run: RunView
+  draft: DraftPreview | null
   busy: boolean
   act: ReturnType<typeof useRun>['act']
 }
 
-function Main({ run, busy, act }: MainProps) {
+function Main({ run, draft, busy, act }: MainProps) {
   if (run.status === 'awaiting_review' && run.review) {
     return (
       <ReviewPanel
@@ -102,12 +103,36 @@ function Main({ run, busy, act }: MainProps) {
       </Alert>
     )
   }
+  if (run.status === 'running' && draft) return <LiveDraft draft={draft} />
   return (
     <Paper sx={{ p: 3 }}>
       <Typography color="text.secondary" gutterBottom>
         Working… steps appear on the left as they finish.
       </Typography>
       <LinearProgress />
+    </Paper>
+  )
+}
+
+/** The draft as the model writes it. Grounding checks run once it's complete, before the review. */
+function LiveDraft({ draft }: { draft: DraftPreview }) {
+  return (
+    <Paper sx={{ p: 3 }} aria-label="Draft being written">
+      <Typography variant="h6" gutterBottom>
+        Writing draft {draft.revision}…
+      </Typography>
+      <Typography sx={{ mb: 2 }}>{draft.summary}</Typography>
+      <Box component="ul" sx={{ pl: 3, my: 0 }}>
+        {draft.bullets.map((text, i) => (
+          <Typography component="li" key={i} sx={{ mb: 1 }}>
+            {text}
+          </Typography>
+        ))}
+      </Box>
+      <Typography variant="caption" color="text.secondary">
+        Each bullet is checked against your evidence once the draft is done.
+      </Typography>
+      <LinearProgress sx={{ mt: 2 }} />
     </Paper>
   )
 }
