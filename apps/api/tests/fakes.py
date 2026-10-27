@@ -26,19 +26,27 @@ class FakeLLM:
         self.calls: list[tuple[str, list]] = []
 
     def with_structured_output(self, schema: type) -> "_Structured":
-        return _Structured(self, schema)
+        return _Structured(self, schema, schema.__name__)
+
+    def bind_tools(self, tools: list) -> "_Structured":
+        """Tool-calling turns answer with responses["tools"] (recorded in calls as "tools"): an
+        AIMessage, or a function of the messages returning one. Without it, no tools are called."""
+        return _Structured(self, "tools", "tools")
 
 
 class _Structured:
-    def __init__(self, llm: FakeLLM, schema: type):
-        self.llm, self.schema = llm, schema
+    def __init__(self, llm: FakeLLM, key: Any, name: str):
+        self.llm, self.key, self.name = llm, key, name
 
     async def ainvoke(self, messages: list) -> Any:
-        self.llm.calls.append((self.schema.__name__, messages))
+        self.llm.calls.append((self.name, list(messages)))
         callbacks = AsyncCallbackManager.configure(ensure_config().get("callbacks"))
         (run,) = await callbacks.on_chat_model_start({"name": "fake"}, [convert_to_messages(messages)])
-        response = self.llm.responses[self.schema]
-        result = response(messages) if callable(response) else response
+        if self.key == "tools" and "tools" not in self.llm.responses:
+            result = AIMessage(content="done")
+        else:
+            response = self.llm.responses[self.key]
+            result = response(messages) if callable(response) else response
         message = AIMessage(content="", usage_metadata=FakeLLM.USAGE)
         await run.on_llm_end(LLMResult(generations=[[ChatGeneration(message=message)]]))
         return result

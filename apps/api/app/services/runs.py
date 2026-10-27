@@ -67,6 +67,7 @@ STEP_OUTPUTS = {
     "parse_posting": "requirements",
     "retrieve_experience": "evidence",
     "match_requirements": "matches",
+    "research_gaps": "searches",
     "draft_bullets": "draft",
     "finalize": "result",
 }
@@ -87,10 +88,20 @@ def describe(node: str, changes: dict[str, Any]) -> str:
             c: sum(m.coverage == c for m in changes["matches"]) for c in ("strong", "partial", "missing")
         }
         return ", ".join(f"{n} {c}" for c, n in counts.items())
+    if node == "research_gaps":
+        searches = changes["searches"]
+        if not searches:
+            return "no searches needed"
+        found = len({e for s in searches for e in s.found})
+        return f"{plural(len(searches), 'search', 'searches')}, {plural(found, 'more piece')} of evidence"
     if node == "draft_bullets":
         draft: Draft = changes["draft"]
         return f"draft {draft.revision}: {len(draft.bullets)} bullets"
     return ""
+
+
+def plural(n: int, one: str, many: str | None = None) -> str:
+    return f"{n} {one if n == 1 else many or one + 's'}"
 
 
 def short_error(exc: Exception) -> str:

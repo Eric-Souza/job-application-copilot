@@ -69,7 +69,7 @@ class ChatWithFallback:
     The free tier's flash model regularly answers 503 "high demand" for minutes at a time,
     while the lite model (with a larger quota) keeps working. Once the main model's daily quota
     is used up, it's skipped until the quota resets instead of failing first on every call.
-    Nodes only call with_structured_output, so that's the only method this needs.
+    Nodes only call with_structured_output and bind_tools, so those are the methods this needs.
     """
 
     def __init__(self, primary, fallback=None, clock=time.monotonic):
@@ -77,10 +77,16 @@ class ChatWithFallback:
         self.primary_resumes_at = 0.0  # clock time; the main model is skipped until then
 
     def with_structured_output(self, schema):
-        runnable = self.primary.with_structured_output(schema)
+        return self._wrap(lambda model: model.with_structured_output(schema))
+
+    def bind_tools(self, tools):
+        return self._wrap(lambda model: model.bind_tools(tools))
+
+    def _wrap(self, make):
+        runnable = make(self.primary)
         if self.fallback is None:
             return runnable
-        fallback = self.fallback.with_structured_output(schema)
+        fallback = make(self.fallback)
         if self.clock() < self.primary_resumes_at:
             return fallback
         watched = runnable.with_config(callbacks=[_QuotaWatcher(self)])

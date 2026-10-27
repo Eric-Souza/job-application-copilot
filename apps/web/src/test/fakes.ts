@@ -96,6 +96,7 @@ export const REVIEW: ReviewRequest = {
     { id: 'E1', role: 'Engineer · Acme', content: 'Payments API in Go, 2M requests a day' },
     { id: 'E2', role: 'Engineer · Acme', content: 'Rebuilt the CI pipeline' },
   ],
+  searches: [{ requirement_id: 'R3', query: 'container orchestration', found: [] }],
 }
 
 export const RESULT: TailoredResume = {
@@ -113,6 +114,7 @@ const STEPS_SO_FAR = [
   { node: 'parse_posting', detail: '3 requirements' },
   { node: 'retrieve_experience', detail: '2 pieces of evidence' },
   { node: 'match_requirements', detail: '1 strong, 1 partial, 1 missing' },
+  { node: 'research_gaps', detail: '1 search, 0 more pieces of evidence' },
   { node: 'draft_bullets', detail: 'draft 1: 2 bullets' },
 ]
 

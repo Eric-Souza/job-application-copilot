@@ -33,7 +33,9 @@ HITS = {
 
 async def run(llm: FakeLLM, search=None):
     """Run the graph to the end, approving the draft if it pauses for review."""
-    graph = build_graph(Deps(llm=llm, search=search or fixed_search(HITS)), checkpointer=memory_saver())
+    graph = build_graph(
+        Deps(llm=llm, search=search or fixed_search(HITS), research_rounds=0), checkpointer=memory_saver()
+    )
     config = {"configurable": {"thread_id": "test"}}
     state = await graph.ainvoke({"posting": "Senior Backend Engineer at Northwind..."}, config)
     if "__interrupt__" in state:

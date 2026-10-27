@@ -2,6 +2,7 @@ import CheckCircle from '@mui/icons-material/CheckCircle'
 import ErrorOutlined from '@mui/icons-material/ErrorOutlined'
 import PauseCircleOutlined from '@mui/icons-material/PauseCircleOutlined'
 import RadioButtonUnchecked from '@mui/icons-material/RadioButtonUnchecked'
+import RemoveCircleOutlineOutlined from '@mui/icons-material/RemoveCircleOutlineOutlined'
 import CircularProgress from '@mui/material/CircularProgress'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
@@ -15,11 +16,13 @@ const ICONS: Record<StepState, React.ReactNode> = {
   waiting: <PauseCircleOutlined color="warning" fontSize="small" />,
   failed: <ErrorOutlined color="error" fontSize="small" />,
   pending: <RadioButtonUnchecked color="disabled" fontSize="small" />,
+  skipped: <RemoveCircleOutlineOutlined color="disabled" fontSize="small" />,
 }
 
 function secondary(row: StepRow): string {
   if (row.state === 'waiting') return 'Waiting for you'
   if (row.state === 'failed') return 'Failed here'
+  if (row.state === 'skipped') return 'Not needed'
   const time = row.seconds === undefined ? '' : `${row.seconds.toFixed(1)}s`
   return [row.detail, time].filter(Boolean).join(' · ')
 }
@@ -33,7 +36,11 @@ export function StepProgress({ rows }: { rows: StepRow[] }) {
           <ListItemText
             primary={row.label}
             secondary={secondary(row)}
-            slotProps={{ primary: { color: row.state === 'pending' ? 'text.disabled' : 'text.primary' } }}
+            slotProps={{
+              primary: {
+                color: row.state === 'pending' || row.state === 'skipped' ? 'text.disabled' : 'text.primary',
+              },
+            }}
           />
         </ListItem>
       ))}

@@ -76,7 +76,7 @@ export function ReviewPanel({ review, busy, onDecision }: Props) {
         <Typography variant="h6" gutterBottom>
           Requirement coverage
         </Typography>
-        <CoverageTable matches={review.coverage} lookup={lookup} />
+        <CoverageTable matches={review.coverage} lookup={lookup} searches={review.searches} />
       </Paper>
     </Stack>
   )
