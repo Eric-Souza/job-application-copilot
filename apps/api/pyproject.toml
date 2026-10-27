@@ -19,6 +19,7 @@ dependencies = [
   "sqlalchemy[asyncio]>=2",
   "pypdf",
   "langfuse",
+  "mcp",
 ]
 
 [project.optional-dependencies]

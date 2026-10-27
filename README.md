@@ -2,7 +2,7 @@
 
 A LangGraph agent that tailors your resume to a job posting. Paste a posting, and the agent extracts the requirements, matches them against your experience with RAG, and drafts tailored resume bullets. You review the drafts before anything is finalized. Every run is saved in Postgres, so you can close the tab and resume later.
 
-> **Status:** milestones 1 to 6 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, a FastAPI API that streams each step and the draft as it's written over SSE, a React UI to run and review it all, per-run usage with optional Langfuse tracing, and a tool-calling step that searches again for weakly covered requirements.
+> **Status:** milestones 1 to 6 work: the experience index, the core LangGraph agent (parse a posting, retrieve evidence, match requirements, draft grounded bullets), human review with a Postgres checkpointer, a FastAPI API that streams each step and the draft as it's written over SSE, a React UI to run and review it all, per-run usage with optional Langfuse tracing, a tool-calling step that searches again for weakly covered requirements, and an optional MCP client that indexes the resume from the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server).
 
 ## How it works
 
@@ -36,7 +36,7 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 - [x] React UI: paste a posting, watch each step finish, then approve, ask for changes, or edit the draft, and copy or download the result
 - [x] Tool calling: for weakly covered requirements, the model searches your experience again in its own words, in a bounded loop, and the new evidence is judged again
 - [x] Per-run usage (model calls, tokens, time) and Langfuse tracing of every step and prompt
-- [ ] Optional: load experience through the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) instead of local files
+- [x] Optional: load experience through the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) instead of local files
 
 ## Stack
 
@@ -69,9 +69,10 @@ job-application-copilot/
         routers/            # runs, review decisions, SSE stream, experience ingestion
         services/
           runs.py           # runs the graph in the background, tracks status, publishes events
-        tracing.py        # usage counting, and Langfuse tracing when its keys are set
+          tracing.py        # usage counting, and Langfuse tracing when its keys are set
           chunking.py       # resume Markdown -> one chunk per bullet, tagged with its role
           ingest.py         # embed and index files, skip unchanged ones, prune removed ones
+          profile_mcp.py    # MCP client: reads profile://resume over stdio or Streamable HTTP
           retrieval/        # vector, keyword, and hybrid (RRF) search
           llm.py            # Gemini chat model (with a lite fallback) and embeddings
         main.py             # FastAPI app: lifespan, CORS, routers
@@ -116,6 +117,14 @@ python -m app.cli search "Kafka microservices" -k 3
 2. [Experience] Full Stack Engineer · Zro Bank | Jul 2020 – Jun 2022 > Multi-currency digital bank (fintech)
    Scaled the core banking app's backend by splitting it into NestJS microservices that communicate over Apache Kafka, ...
 ```
+
+Or keep your experience in the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) and let the copilot read it from there. Set `PROFILE_MCP` to a command that starts the server over stdio, or to the URL of one running over Streamable HTTP:
+
+```bash
+PROFILE_MCP="node ../profile-mcp-server/dist/index.js"   # or http://localhost:3000/mcp
+```
+
+`ingest` then reads the `profile://resume` resource (your roles from the server's experience file, plus live GitHub projects and Medium articles), indexes it as `profile-mcp-resume.md`, and prunes the local files, so the server is the one source of evidence. The server is started fresh for each ingest and gets this process's environment, so `GITHUB_TOKEN` and the other server settings can live in the same `.env`. Unset `PROFILE_MCP` to go back to `data/resume/`.
 
 Each chunk is one resume bullet, and its role heading is embedded and indexed with it, so a requirement like "healthcare experience" finds bullets whose only mention of healthcare is the job title above them.
 
@@ -182,7 +191,7 @@ uvicorn app.main:app --loop app.db:LOOP_FACTORY --port 8000
 | `GET /runs/{id}/events` | SSE stream: `status`, then `step` and `node` as each step starts and finishes, `draft` with the text so far while the draft is written, then `review`, `done`, or `error` |
 | `POST /runs/{id}/review` | `{"action": "approve"}`, `{"action": "revise", "feedback": "..."}`, or `{"action": "edit", "summary": "...", "bullets": [...]}` |
 | `POST /runs/{id}/retry` | Continue a failed run from the step that failed |
-| `POST /experience/ingest` | Index `data/resume/` |
+| `POST /experience/ingest` | Index `data/resume/`, or the profile MCP server's resume when `PROFILE_MCP` is set |
 | `GET /experience/search?q=...` | Search your experience (`mode` = vector, keyword, or hybrid) |
 
 Interactive docs are at `http://localhost:8000/docs`. Runs that were in progress when the server stopped are marked failed on startup and can be retried. Runs started from the CLI don't show up in `GET /runs`.
