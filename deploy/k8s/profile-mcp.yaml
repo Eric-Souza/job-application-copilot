@@ -1,0 +1,55 @@
+# The profile MCP server (github.com/Eric-Souza/profile-mcp-server) over Streamable HTTP. It's
+# stateless, a new MCP server per request, so it runs two replicas behind one Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: profile-mcp
+spec:
+  selector:
+    app: profile-mcp
+  ports:
+    - name: http
+      port: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: profile-mcp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: profile-mcp
+  template:
+    metadata:
+      labels:
+        app: profile-mcp
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: profile-mcp
+          image: profile-mcp-server
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: postgres
+          env:
+            # Adds the read-only search_experience_index tool over the copilot's index
+            - name: COPILOT_DATABASE_URL
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)
+            # Optional: raises the GitHub API limit from 60 to 5,000 requests/hour
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef: { name: copilot-secrets, key: GITHUB_TOKEN, optional: true }
+          readinessProbe:
+            httpGet: { path: /health, port: 3000 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 3000 }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { memory: 256Mi }

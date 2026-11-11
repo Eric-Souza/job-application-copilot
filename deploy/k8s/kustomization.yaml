@@ -1,0 +1,36 @@
+# kubectl apply -k deploy/k8s   (see "Kubernetes" in the README)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: job-copilot
+
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - profile-mcp.yaml
+  - api.yaml
+  - reindex-cronjob.yaml
+  - web.yaml
+
+# Local-only credentials, the same ones docker-compose.yml uses. Replace with a managed Secret
+# (External Secrets, Sealed Secrets) before pointing this at a real cluster.
+secretGenerator:
+  - name: postgres
+    literals:
+      - POSTGRES_USER=copilot
+      - POSTGRES_PASSWORD=copilot
+      - POSTGRES_DB=copilot
+
+configMapGenerator:
+  - name: api-config
+    literals:
+      - RETRIEVAL_MODE=hybrid
+      # The resume comes from the profile MCP server over Streamable HTTP, not from files
+      - PROFILE_MCP=http://profile-mcp:3000/mcp
+
+images:
+  - name: job-copilot-api
+    newTag: local
+  - name: job-copilot-web
+    newTag: local
+  - name: profile-mcp-server
+    newTag: local

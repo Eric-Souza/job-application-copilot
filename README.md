@@ -37,6 +37,7 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 - [x] Tool calling: for weakly covered requirements, the model searches your experience again in its own words, in a bounded loop, and the new evidence is judged again
 - [x] Per-run usage (model calls, tokens, time) and Langfuse tracing of every step and prompt
 - [x] Optional: load experience through the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) instead of local files
+- [x] Kubernetes deployment (Kustomize): Postgres StatefulSet, the API, the MCP server as its own service, the UI on nginx, and a CronJob that re-indexes the resume daily, smoke-tested on a kind cluster in CI
 
 ## Stack
 
@@ -51,6 +52,7 @@ parse_posting ──► retrieve_experience ──► match_requirements ──�
 | Frontend | React, TypeScript, Vite, MUI |
 | Observability | Langfuse (Hobby free tier) |
 | Tests | pytest, Vitest |
+| Deployment | Docker, Kubernetes (Kustomize), kind in GitHub Actions |
 
 ## Project structure
 
@@ -87,6 +89,7 @@ job-application-copilot/
         components/         # run list, new run, review panel, result view
   data/resume/              # your resume and project write-ups (gitignored)
   data/samples/             # a fictional sample resume and job posting
+  deploy/k8s/               # Kubernetes manifests (Kustomize)
   docs/                     # design notes, screenshots
   docker-compose.yml        # Postgres 16 + pgvector
   .env.example
@@ -223,6 +226,35 @@ LANGFUSE_HOST=https://cloud.langfuse.com   # or your self-hosted Langfuse
 Each segment of a run (up to the review, each revision, a retry) is one trace, and a run's traces share a Langfuse session named by the run id, so a run with two revisions reads as one timeline. The run page links to it. With the keys empty, tracing is off and nothing leaves your machine except the Gemini calls.
 
 Self-hosting Langfuse (it's free, and Docker Compose runs it) keeps traces on your machine too. Langfuse prices calls at Gemini's paid rates; on the free tier, add a model definition in the project's settings that matches `gemini-.+` at $0 so cost reads $0.
+
+## Kubernetes
+
+`deploy/k8s` runs the copilot and the [profile MCP server](https://github.com/Eric-Souza/profile-mcp-server) together:
+
+- **postgres:** a StatefulSet with a persistent volume. It holds the index, the runs and the LangGraph checkpoints.
+- **profile-mcp:** two replicas behind a Service. The server is stateless over Streamable HTTP, and it reads the copilot's index read-only for `search_experience_index`.
+- **api:** one replica, replaced with `Recreate`. Runs execute inside the API process and stream from it. On startup, the API marks unfinished runs as failed so they can be retried from their checkpoints. A second pod would do that to runs the first one is still executing. An init container waits for Postgres. `PROFILE_MCP` points at the MCP Service, so the resume comes from there.
+- **reindex-resume:** a CronJob that calls `POST /experience/ingest` every morning. New repos and articles get indexed without anyone running it. Unchanged sources are skipped, so most days cost no embedding calls.
+- **web:** the UI on unprivileged nginx. It proxies `/api` to the API with buffering off, so the SSE stream arrives as it's written.
+
+Locally, with [kind](https://kind.sigs.k8s.io) and kubectl, and the MCP server cloned next to this repo:
+
+```bash
+docker build -t job-copilot-api:local apps/api
+docker build -t job-copilot-web:local apps/web
+docker build -t profile-mcp-server:local ../profile-mcp-server
+kind create cluster --name copilot
+kind load docker-image job-copilot-api:local job-copilot-web:local profile-mcp-server:local --name copilot
+
+kubectl apply -k deploy/k8s
+# The API needs a Gemini key to start. GITHUB_TOKEN (for the MCP server) and the LANGFUSE_* keys are optional
+kubectl -n job-copilot create secret generic copilot-secrets --from-literal=GEMINI_API_KEY=...
+kubectl -n job-copilot rollout restart deployment/api
+kubectl -n job-copilot create job --from=cronjob/reindex-resume reindex-now   # index the resume now
+kubectl -n job-copilot port-forward svc/web 8080:80                          # open http://localhost:8080
+```
+
+The Postgres credentials in `kustomization.yaml` are local-only, like the ones in `docker-compose.yml`. Swap them for a managed Secret on a real cluster. The `kubernetes deploy` workflow runs the same steps on a throwaway kind cluster, with a placeholder Gemini key. It checks the UI, the API through the proxy, and a `tools/list` call to the MCP server.
 
 ## Free to run
 

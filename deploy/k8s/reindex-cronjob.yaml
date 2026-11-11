@@ -1,0 +1,29 @@
+# Re-indexes the resume from the profile MCP server every morning, so new GitHub repos and Medium
+# articles reach the copilot without a manual ingest. Unchanged sources are skipped, so a quiet
+# day costs no embedding calls. Run it now: kubectl -n job-copilot create job --from=cronjob/reindex-resume reindex-now
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reindex-resume
+spec:
+  schedule: "0 6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+          containers:
+            - name: reindex
+              image: curlimages/curl:8.11.1
+              args: ["-fsS", "--max-time", "540", "-X", "POST", "http://api:8000/experience/ingest"]
+              resources:
+                requests: { cpu: 10m, memory: 16Mi }
+                limits: { memory: 64Mi }

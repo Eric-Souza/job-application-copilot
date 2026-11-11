@@ -1,0 +1,74 @@
+name: kubernetes deploy
+
+# Builds the API, the UI and the profile MCP server, deploys them with the manifests in deploy/k8s
+# to a throwaway kind cluster, and smoke-tests the app. Gemini gets a placeholder key: the API
+# needs one to start, and nothing here calls the model.
+on:
+  pull_request:
+    paths:
+      - "apps/**"
+      - "deploy/**"
+      - ".github/workflows/k8s.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "deploy/**"
+      - ".github/workflows/k8s.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: k8s-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NS: job-copilot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Eric-Souza/profile-mcp-server
+          path: profile-mcp-server
+      - name: Build images
+        run: |
+          docker build -t job-copilot-api:local apps/api
+          docker build -t job-copilot-web:local apps/web
+          docker build -t profile-mcp-server:local profile-mcp-server
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: copilot
+      - name: Load images into the cluster
+        run: kind load docker-image job-copilot-api:local job-copilot-web:local profile-mcp-server:local --name copilot
+      - name: Deploy
+        run: |
+          kubectl apply -k deploy/k8s
+          kubectl -n "$NS" create secret generic copilot-secrets --from-literal=GEMINI_API_KEY=ci-placeholder
+          kubectl -n "$NS" rollout status statefulset/postgres --timeout=180s
+          kubectl -n "$NS" rollout status deployment/profile-mcp --timeout=120s
+          kubectl -n "$NS" rollout status deployment/api --timeout=180s
+          kubectl -n "$NS" rollout status deployment/web --timeout=120s
+      - name: Smoke test
+        run: |
+          kubectl -n "$NS" port-forward svc/web 8080:80 >/dev/null 2>&1 &
+          kubectl -n "$NS" port-forward svc/profile-mcp 3000:3000 >/dev/null 2>&1 &
+          for i in $(seq 1 30); do curl -fs localhost:8080/healthz >/dev/null && curl -fs localhost:3000/health >/dev/null && break; sleep 1; done
+          # The UI is served, the API answers through the proxy and reads its runs from Postgres
+          curl -fsS localhost:8080/ | grep -q '<div id="root">'
+          curl -fsS localhost:8080/api/health | jq -e '.status == "ok"'
+          curl -fsS localhost:8080/api/runs | jq -e 'type == "array"'
+          # The MCP server answers a tools/list call, including the tool backed by the copilot's Postgres
+          curl -fsS -X POST localhost:3000/mcp -H 'content-type: application/json' \
+            -H 'accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            | sed -n 's/^data: //p' | jq -e '[.result.tools[].name] | index("search_experience_index") != null'
+      - name: Cluster state on failure
+        if: failure()
+        run: |
+          kubectl -n "$NS" get pods -o wide
+          kubectl -n "$NS" describe pods
+          kubectl -n "$NS" logs deployment/api --all-containers --tail=200
+          kubectl -n "$NS" logs deployment/profile-mcp --tail=100

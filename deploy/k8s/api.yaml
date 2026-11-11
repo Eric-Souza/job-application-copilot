@@ -1,0 +1,72 @@
+# FastAPI + LangGraph backend. One replica, replaced with Recreate: runs execute as tasks inside
+# the API process and stream to the browser from there, and on startup the API marks every
+# "running" run as failed (they're retried from their last checkpoint). A second pod, even
+# briefly during a rolling update, would fail runs that the other pod is still executing.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      # Shutdown cancels the running segments; their completed steps are already checkpointed
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        # The API creates its tables on startup, so it waits for Postgres instead of crash-looping
+        - name: wait-for-postgres
+          image: pgvector/pgvector:pg16
+          command: ["sh", "-c", "until pg_isready -h postgres -U \"$POSTGRES_USER\"; do sleep 2; done"]
+          envFrom:
+            - secretRef:
+                name: postgres
+      containers:
+        - name: api
+          image: job-copilot-api
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - secretRef:
+                name: postgres
+            # Created by hand (see the README): GEMINI_API_KEY, and optionally the LANGFUSE_* keys
+            - secretRef:
+                name: copilot-secrets
+                optional: true
+          env:
+            - name: DATABASE_URL
+              value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
